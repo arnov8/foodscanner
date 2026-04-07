@@ -4,34 +4,9 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-export async function POST(request: Request) {
-  try {
-    const { image, mimeType } = await request.json();
+const NUTRITION_PROMPT = `Analyse ce repas/aliment. Identifie chaque aliment et estime les valeurs nutritionnelles.
 
-    if (!image) {
-      return Response.json({ error: "No image provided" }, { status: 400 });
-    }
-
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1024,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: mimeType || "image/jpeg",
-                data: image,
-              },
-            },
-            {
-              type: "text",
-              text: `Analyse cette photo de repas/aliment. Identifie chaque aliment visible et estime les valeurs nutritionnelles.
-
-Réponds UNIQUEMENT avec un JSON valide (pas de texte avant ou après), dans ce format exact :
+Reponds UNIQUEMENT avec un JSON valide (pas de texte avant ou apres), dans ce format exact :
 {
   "foods": [
     {
@@ -50,16 +25,52 @@ Réponds UNIQUEMENT avec un JSON valide (pas de texte avant ou après), dans ce 
   "total_fat": 8
 }
 
-Règles :
-- Estime les quantités de manière réaliste basé sur ce que tu vois
-- Les calories sont en kcal, protéines/glucides/lipides en grammes
-- Sois précis sur l'identification des aliments
-- Les totaux doivent être la somme des aliments individuels
-- Si tu ne peux pas identifier le plat, retourne {"error": "Impossible d'identifier les aliments"}`,
-            },
-          ],
+Regles :
+- Estime les quantites de maniere realiste (portion standard si pas de photo)
+- Les calories sont en kcal, proteines/glucides/lipides en grammes
+- Sois precis sur l'identification des aliments
+- Les totaux doivent etre la somme des aliments individuels
+- Si tu ne peux pas identifier le plat, retourne {"error": "Impossible d'identifier les aliments"}`;
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { image, mimeType, text } = body;
+
+    if (!image && !text) {
+      return Response.json(
+        { error: "Fournissez une image ou une description" },
+        { status: 400 }
+      );
+    }
+
+    const content: Anthropic.MessageCreateParams["messages"][0]["content"] = [];
+
+    // Add image if provided
+    if (image) {
+      content.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: mimeType || "image/jpeg",
+          data: image,
         },
-      ],
+      });
+      content.push({
+        type: "text",
+        text: `Analyse cette photo de repas/aliment. ${NUTRITION_PROMPT}`,
+      });
+    } else if (text) {
+      content.push({
+        type: "text",
+        text: `Voici la description d'un repas : "${text}"\n\n${NUTRITION_PROMPT}`,
+      });
+    }
+
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1024,
+      messages: [{ role: "user", content }],
     });
 
     const textContent = response.content.find((c) => c.type === "text");
@@ -79,6 +90,6 @@ Règles :
     return Response.json(result);
   } catch (error) {
     console.error("Analysis error:", error);
-    return Response.json({ error: "Failed to analyze image" }, { status: 500 });
+    return Response.json({ error: "Failed to analyze" }, { status: 500 });
   }
 }

@@ -18,9 +18,21 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  Coffee,
+  Sun,
+  Moon,
+  UtensilsCrossed,
+  Plus,
 } from "lucide-react";
 import { format, addDays, subDays } from "date-fns";
 import { fr } from "date-fns/locale";
+
+const MEAL_SECTIONS = [
+  { type: "breakfast", label: "Petit-dejeuner", icon: Coffee, pill: "pill-amber" },
+  { type: "lunch", label: "Dejeuner", icon: Sun, pill: "pill-blue" },
+  { type: "dinner", label: "Diner", icon: Moon, pill: "pill-purple" },
+  { type: "snack", label: "Snack", icon: UtensilsCrossed, pill: "pill-pink" },
+];
 
 export default function Dashboard() {
   const {
@@ -72,6 +84,12 @@ export default function Dashboard() {
   const deficit = goal - totals.calories;
   const percentUsed = Math.min((totals.calories / goal) * 100, 100);
 
+  // Group meals by type
+  const mealsByType = MEAL_SECTIONS.map((section) => ({
+    ...section,
+    meals: meals.filter((m) => m.meal_type === section.type),
+  }));
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -83,10 +101,8 @@ export default function Dashboard() {
   if (profiles.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center">
-        {/* Floating orbs */}
         <div className="float-orb w-64 h-64 bg-emerald-300 top-20 -left-20" />
         <div className="float-orb w-48 h-48 bg-orange-200 bottom-20 right-10" />
-
         <div className="glass p-12 max-w-md animate-scale-in">
           <div className="w-20 h-20 gradient-green rounded-2xl flex items-center justify-center mb-6 mx-auto shadow-xl shadow-green-500/20 animate-float">
             <Sparkles className="w-10 h-10 text-white" />
@@ -106,23 +122,8 @@ export default function Dashboard() {
     );
   }
 
-  const mealTypeLabels: Record<string, string> = {
-    breakfast: "Petit-dej",
-    lunch: "Dejeuner",
-    dinner: "Diner",
-    snack: "Snack",
-  };
-
-  const mealTypePills: Record<string, string> = {
-    breakfast: "pill-amber",
-    lunch: "pill-blue",
-    dinner: "pill-purple",
-    snack: "pill-pink",
-  };
-
   return (
     <div className="max-w-2xl mx-auto p-4 md:p-8">
-      {/* Floating orbs background */}
       <div className="float-orb w-80 h-80 bg-emerald-200 -top-40 -right-40" />
       <div className="float-orb w-60 h-60 bg-orange-200 top-96 -left-20" />
 
@@ -201,7 +202,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Progress bar */}
         <div className="mt-6">
           <div className="stat-bar">
             <div
@@ -252,34 +252,10 @@ export default function Dashboard() {
       {/* Quick macro stats */}
       <div className="grid grid-cols-4 gap-3 mb-6">
         {[
-          {
-            icon: Flame,
-            value: Math.round(totals.calories),
-            unit: "kcal",
-            gradient: "gradient-green",
-            shadow: "shadow-green-500/20",
-          },
-          {
-            icon: Beef,
-            value: Math.round(totals.protein),
-            unit: "g prot",
-            gradient: "gradient-blue",
-            shadow: "shadow-blue-500/20",
-          },
-          {
-            icon: Wheat,
-            value: Math.round(totals.carbs),
-            unit: "g gluc",
-            gradient: "gradient-orange",
-            shadow: "shadow-orange-500/20",
-          },
-          {
-            icon: Droplets,
-            value: Math.round(totals.fat),
-            unit: "g lip",
-            gradient: "gradient-purple",
-            shadow: "shadow-purple-500/20",
-          },
+          { icon: Flame, value: Math.round(totals.calories), unit: "kcal", gradient: "gradient-green", shadow: "shadow-green-500/20" },
+          { icon: Beef, value: Math.round(totals.protein), unit: "g prot", gradient: "gradient-blue", shadow: "shadow-blue-500/20" },
+          { icon: Wheat, value: Math.round(totals.carbs), unit: "g gluc", gradient: "gradient-orange", shadow: "shadow-orange-500/20" },
+          { icon: Droplets, value: Math.round(totals.fat), unit: "g lip", gradient: "gradient-purple", shadow: "shadow-purple-500/20" },
         ].map(({ icon: Icon, value, unit, gradient, shadow }, i) => (
           <div
             key={unit}
@@ -293,103 +269,106 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Scan button */}
-      <Link
-        href="/analyze"
-        className="btn-primary w-full flex items-center justify-center gap-3 mb-8 pulse-glow text-base"
-      >
-        <Camera className="w-5 h-5" />
-        Scanner un repas
-      </Link>
+      {/* Meals grouped by type */}
+      {loadingMeals ? (
+        <div className="glass p-12 text-center">
+          <div className="w-10 h-10 border-4 border-emerald-100 border-t-emerald-500 rounded-full animate-spin-slow mx-auto" />
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {mealsByType.map(({ type, label, icon: Icon, pill, meals: typeMeals }) => {
+            const sectionTotal = typeMeals.reduce((s, m) => s + m.total_calories, 0);
 
-      {/* Meals list */}
-      <div className="space-y-3">
-        <h2 className="text-lg font-bold text-gray-800 tracking-tight">
-          Repas du jour
-          <span className="text-sm font-normal text-gray-400 ml-2">
-            ({meals.length})
-          </span>
-        </h2>
-        {loadingMeals ? (
-          <div className="glass p-12 text-center">
-            <div className="w-10 h-10 border-4 border-emerald-100 border-t-emerald-500 rounded-full animate-spin-slow mx-auto" />
-          </div>
-        ) : meals.length === 0 ? (
-          <div className="glass p-10 text-center animate-scale-in">
-            <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
-              <Camera className="w-8 h-8 text-gray-300" />
-            </div>
-            <p className="text-gray-500 font-medium">
-              Aucun repas enregistre
-            </p>
-            <p className="text-sm text-gray-400 mt-1">
-              Scannez votre premier repas !
-            </p>
-          </div>
-        ) : (
-          meals.map((meal, i) => (
-            <div
-              key={meal.id}
-              className="card p-4 card-hover animate-fade-in"
-              style={{ animationDelay: `${i * 60}ms` }}
-            >
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className={`pill ${mealTypePills[meal.meal_type] || "pill-green"}`}>
-                    {mealTypeLabels[meal.meal_type] || meal.meal_type}
-                  </span>
-                  <span className="text-xs text-gray-400 font-medium">
-                    {format(new Date(meal.created_at), "HH:mm")}
-                  </span>
-                </div>
-                <button
-                  onClick={() => deleteMeal(meal.id)}
-                  className="p-2 rounded-xl hover:bg-red-50 text-gray-300 hover:text-red-400 transition-all"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-
-              {meal.food_items && meal.food_items.length > 0 && (
-                <div className="mb-3 space-y-1">
-                  {meal.food_items.map((item, j) => (
-                    <div
-                      key={item.id || j}
-                      className="flex justify-between text-sm py-1.5 px-2 rounded-lg hover:bg-white/40 transition-colors"
-                    >
-                      <span className="text-gray-700 font-medium">
-                        {item.name}
-                        <span className="text-gray-400 font-normal ml-1">
-                          {item.quantity}
-                          {item.unit}
-                        </span>
+            return (
+              <div key={type} className="animate-fade-in">
+                {/* Section header */}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Icon className="w-4 h-4 text-gray-400" />
+                    <h3 className="text-sm font-bold text-gray-700">{label}</h3>
+                    {sectionTotal > 0 && (
+                      <span className={`pill ${pill} text-[10px]`}>
+                        {Math.round(sectionTotal)} kcal
                       </span>
-                      <span className="text-gray-500 font-semibold">
-                        {Math.round(item.calories)} kcal
-                      </span>
-                    </div>
-                  ))}
+                    )}
+                  </div>
+                  <Link
+                    href="/analyze"
+                    className="p-1.5 rounded-lg hover:bg-white/60 text-gray-400 hover:text-emerald-500 transition-all"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Link>
                 </div>
-              )}
 
-              <div className="flex gap-3 text-xs font-semibold pt-2 border-t border-gray-100/50">
-                <span className="pill-green pill">
-                  {Math.round(meal.total_calories)} kcal
-                </span>
-                <span className="text-blue-500">
-                  P: {Math.round(meal.total_protein)}g
-                </span>
-                <span className="text-orange-500">
-                  G: {Math.round(meal.total_carbs)}g
-                </span>
-                <span className="text-purple-500">
-                  L: {Math.round(meal.total_fat)}g
-                </span>
+                {/* Meals */}
+                {typeMeals.length === 0 ? (
+                  <Link
+                    href="/analyze"
+                    className="card p-4 flex items-center justify-center gap-2 text-gray-400 hover:text-emerald-500 hover:border-emerald-200 transition-all border border-dashed border-gray-200"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="text-sm font-medium">Ajouter</span>
+                  </Link>
+                ) : (
+                  <div className="space-y-2">
+                    {typeMeals.map((meal) => (
+                      <div key={meal.id} className="card p-4 card-hover">
+                        <div className="flex items-start justify-between mb-2">
+                          <span className="text-xs text-gray-400 font-medium">
+                            {format(new Date(meal.created_at), "HH:mm")}
+                          </span>
+                          <button
+                            onClick={() => deleteMeal(meal.id)}
+                            className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-400 transition-all"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {meal.food_items && meal.food_items.length > 0 && (
+                          <div className="mb-2 space-y-0.5">
+                            {meal.food_items.map((item, j) => (
+                              <div
+                                key={item.id || j}
+                                className="flex justify-between text-sm py-1 px-1"
+                              >
+                                <span className="text-gray-700 font-medium">
+                                  {item.name}
+                                  <span className="text-gray-400 font-normal ml-1 text-xs">
+                                    {item.quantity}{item.unit}
+                                  </span>
+                                </span>
+                                <span className="text-gray-500 font-semibold text-xs">
+                                  {Math.round(item.calories)} kcal
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="flex gap-3 text-xs font-semibold pt-2 border-t border-gray-100/50">
+                          <span className="pill-green pill">
+                            {Math.round(meal.total_calories)} kcal
+                          </span>
+                          <span className="text-blue-500">
+                            P: {Math.round(meal.total_protein)}g
+                          </span>
+                          <span className="text-orange-500">
+                            G: {Math.round(meal.total_carbs)}g
+                          </span>
+                          <span className="text-purple-500">
+                            L: {Math.round(meal.total_fat)}g
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-          ))
-        )}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
