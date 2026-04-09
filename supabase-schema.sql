@@ -9,6 +9,7 @@ CREATE TABLE profiles (
   daily_protein_goal INTEGER NOT NULL DEFAULT 150,
   daily_carbs_goal INTEGER NOT NULL DEFAULT 250,
   daily_fat_goal INTEGER NOT NULL DEFAULT 65,
+  claude_api_key TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

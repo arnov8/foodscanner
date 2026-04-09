@@ -18,6 +18,9 @@ import {
   UtensilsCrossed,
   Moon,
   Coffee,
+  Trash2,
+  Minus,
+  Plus,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -66,7 +69,9 @@ export default function AnalyzePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          image ? { image, mimeType } : { text: textInput.trim() }
+          image
+            ? { image, mimeType, profile_id: activeProfileId }
+            : { text: textInput.trim(), profile_id: activeProfileId }
         ),
       });
       const data = await res.json();
@@ -118,6 +123,46 @@ export default function AnalyzePage() {
   const fullReset = () => {
     reset();
     setMealType(null);
+  };
+
+  const updateFoodItem = (index: number, field: string, value: number) => {
+    if (!result) return;
+    const foods = [...result.foods];
+    const item = { ...foods[index] };
+    const ratio = field === "quantity" && item.quantity > 0 ? value / item.quantity : 1;
+
+    if (field === "quantity") {
+      item.quantity = value;
+      item.calories = Math.round(item.calories * ratio);
+      item.protein = Math.round(item.protein * ratio * 10) / 10;
+      item.carbs = Math.round(item.carbs * ratio * 10) / 10;
+      item.fat = Math.round(item.fat * ratio * 10) / 10;
+    }
+
+    foods[index] = item;
+    setResult({
+      foods,
+      total_calories: foods.reduce((s, f) => s + f.calories, 0),
+      total_protein: foods.reduce((s, f) => s + f.protein, 0),
+      total_carbs: foods.reduce((s, f) => s + f.carbs, 0),
+      total_fat: foods.reduce((s, f) => s + f.fat, 0),
+    });
+  };
+
+  const removeFoodItem = (index: number) => {
+    if (!result) return;
+    const foods = result.foods.filter((_, i) => i !== index);
+    if (foods.length === 0) {
+      setResult(null);
+      return;
+    }
+    setResult({
+      foods,
+      total_calories: foods.reduce((s, f) => s + f.calories, 0),
+      total_protein: foods.reduce((s, f) => s + f.protein, 0),
+      total_carbs: foods.reduce((s, f) => s + f.carbs, 0),
+      total_fat: foods.reduce((s, f) => s + f.fat, 0),
+    });
   };
 
   const selectedMeal = MEAL_TYPES.find((m) => m.value === mealType);
@@ -436,24 +481,51 @@ export default function AnalyzePage() {
             </div>
           </div>
 
-          {/* Food items */}
+          {/* Food items - editable */}
           <div className="glass p-5">
-            <h3 className="font-bold text-gray-800 mb-4">Aliments detectes</h3>
-            <div className="space-y-1">
+            <h3 className="font-bold text-gray-800 mb-1">Aliments detectes</h3>
+            <p className="text-xs text-gray-400 mb-4">Modifiez les quantites ou supprimez les aliments incorrects</p>
+            <div className="space-y-2">
               {result.foods.map((food, i) => (
-                <div key={i} className="flex justify-between items-center py-3 px-3 rounded-xl hover:bg-white/50 transition-colors">
-                  <div>
-                    <p className="font-semibold text-gray-800">{food.name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{food.quantity} {food.unit}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-gray-700">{Math.round(food.calories)} kcal</p>
-                    <div className="flex gap-2 text-[10px] text-gray-400 font-medium mt-0.5">
+                <div key={i} className="flex items-center gap-3 py-3 px-3 rounded-xl bg-white/30 border border-white/50">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-800 text-sm truncate">{food.name}</p>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <button
+                        onClick={() => updateFoodItem(i, "quantity", Math.max(1, food.quantity - (food.unit === "g" || food.unit === "ml" ? 10 : 1)))}
+                        className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
+                      >
+                        <Minus className="w-3 h-3 text-gray-600" />
+                      </button>
+                      <input
+                        type="number"
+                        value={food.quantity}
+                        onChange={(e) => updateFoodItem(i, "quantity", Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-16 text-center text-sm font-bold bg-white/60 rounded-lg px-2 py-1 border border-gray-200"
+                      />
+                      <span className="text-xs text-gray-400 font-medium">{food.unit}</span>
+                      <button
+                        onClick={() => updateFoodItem(i, "quantity", food.quantity + (food.unit === "g" || food.unit === "ml" ? 10 : 1))}
+                        className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
+                      >
+                        <Plus className="w-3 h-3 text-gray-600" />
+                      </button>
+                    </div>
+                    <div className="flex gap-2 text-[10px] text-gray-400 font-medium mt-1">
                       <span className="text-blue-400">P:{Math.round(food.protein)}g</span>
                       <span className="text-orange-400">G:{Math.round(food.carbs)}g</span>
                       <span className="text-purple-400">L:{Math.round(food.fat)}g</span>
                     </div>
                   </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="font-bold text-gray-700 text-sm">{Math.round(food.calories)} kcal</p>
+                  </div>
+                  <button
+                    onClick={() => removeFoodItem(i)}
+                    className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-400 transition-all flex-shrink-0"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               ))}
             </div>

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useProfiles } from "@/lib/hooks";
-import type { Meal } from "@/lib/types";
+import type { Meal, FoodItem } from "@/lib/types";
 import ProfileSelector from "@/components/ProfileSelector";
 import CalorieRing from "@/components/CalorieRing";
 import Link from "next/link";
@@ -23,8 +23,13 @@ import {
   Moon,
   UtensilsCrossed,
   Plus,
+  CalendarDays,
+  Pencil,
+  Check,
+  X,
+  Minus,
 } from "lucide-react";
-import { format, addDays, subDays } from "date-fns";
+import { format, addDays, subDays, isToday, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 
 const MEAL_SECTIONS = [
@@ -45,6 +50,8 @@ export default function Dashboard() {
   const [meals, setMeals] = useState<Meal[]>([]);
   const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [loadingMeals, setLoadingMeals] = useState(false);
+  const dateInputRef = useRef<HTMLInputElement>(null);
+  const isTodaySelected = isToday(parseISO(date));
 
   const fetchMeals = useCallback(async () => {
     if (!activeProfileId) return;
@@ -67,6 +74,63 @@ export default function Dashboard() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
+    fetchMeals();
+  };
+
+  // Meal editing state
+  const [editingMealId, setEditingMealId] = useState<string | null>(null);
+  const [editFoodItems, setEditFoodItems] = useState<FoodItem[]>([]);
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const startEditMeal = (meal: Meal) => {
+    setEditingMealId(meal.id);
+    setEditFoodItems(meal.food_items ? meal.food_items.map((item) => ({ ...item })) : []);
+  };
+
+  const cancelEditMeal = () => {
+    setEditingMealId(null);
+    setEditFoodItems([]);
+  };
+
+  const updateEditItem = (index: number, quantity: number) => {
+    const items = [...editFoodItems];
+    const item = { ...items[index] };
+    const ratio = item.quantity > 0 ? quantity / item.quantity : 1;
+    item.quantity = quantity;
+    item.calories = Math.round(item.calories * ratio);
+    item.protein = Math.round(item.protein * ratio * 10) / 10;
+    item.carbs = Math.round(item.carbs * ratio * 10) / 10;
+    item.fat = Math.round(item.fat * ratio * 10) / 10;
+    items[index] = item;
+    setEditFoodItems(items);
+  };
+
+  const removeEditItem = (index: number) => {
+    setEditFoodItems(editFoodItems.filter((_, i) => i !== index));
+  };
+
+  const saveEditMeal = async () => {
+    if (!editingMealId || editFoodItems.length === 0) return;
+    setSavingEdit(true);
+    const totals = {
+      total_calories: editFoodItems.reduce((s, f) => s + f.calories, 0),
+      total_protein: editFoodItems.reduce((s, f) => s + f.protein, 0),
+      total_carbs: editFoodItems.reduce((s, f) => s + f.carbs, 0),
+      total_fat: editFoodItems.reduce((s, f) => s + f.fat, 0),
+    };
+    await fetch("/api/meals", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: editingMealId,
+        food_items: editFoodItems.map(({ name, quantity, unit, calories, protein, carbs, fat }) => ({
+          name, quantity, unit, calories, protein, carbs, fat,
+        })),
+        ...totals,
+      }),
+    });
+    setSavingEdit(false);
+    cancelEditMeal();
     fetchMeals();
   };
 
@@ -145,26 +209,45 @@ export default function Dashboard() {
       </div>
 
       {/* Date picker */}
-      <div className="glass-strong flex items-center justify-center gap-4 mb-6 py-3 px-6 animate-fade-in">
+      <div className="glass-strong flex items-center justify-center gap-2 mb-6 py-3 px-4 animate-fade-in">
         <button
           onClick={() =>
-            setDate(format(subDays(new Date(date), 1), "yyyy-MM-dd"))
+            setDate(format(subDays(parseISO(date), 1), "yyyy-MM-dd"))
           }
           className="p-2 rounded-xl hover:bg-white/60 transition-all"
         >
           <ChevronLeft className="w-5 h-5 text-gray-600" />
         </button>
-        <span className="text-base font-semibold text-gray-700 min-w-[200px] text-center capitalize">
-          {format(new Date(date), "EEEE d MMMM", { locale: fr })}
-        </span>
+        <button
+          onClick={() => dateInputRef.current?.showPicker()}
+          className="text-base font-semibold text-gray-700 min-w-[180px] text-center capitalize hover:bg-white/50 rounded-xl px-3 py-1.5 transition-all flex items-center justify-center gap-2"
+        >
+          {isTodaySelected ? "Aujourd'hui" : format(parseISO(date), "EEEE d MMMM", { locale: fr })}
+          <CalendarDays className="w-4 h-4 text-gray-400" />
+        </button>
+        <input
+          ref={dateInputRef}
+          type="date"
+          value={date}
+          onChange={(e) => e.target.value && setDate(e.target.value)}
+          className="absolute opacity-0 w-0 h-0 pointer-events-none"
+        />
         <button
           onClick={() =>
-            setDate(format(addDays(new Date(date), 1), "yyyy-MM-dd"))
+            setDate(format(addDays(parseISO(date), 1), "yyyy-MM-dd"))
           }
           className="p-2 rounded-xl hover:bg-white/60 transition-all"
         >
           <ChevronRight className="w-5 h-5 text-gray-600" />
         </button>
+        {!isTodaySelected && (
+          <button
+            onClick={() => setDate(format(new Date(), "yyyy-MM-dd"))}
+            className="text-xs font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-xl transition-all"
+          >
+            Aujourd&apos;hui
+          </button>
+        )}
       </div>
 
       {/* Main calorie card */}
@@ -311,57 +394,156 @@ export default function Dashboard() {
                   </Link>
                 ) : (
                   <div className="space-y-2">
-                    {typeMeals.map((meal) => (
-                      <div key={meal.id} className="card p-4 card-hover">
-                        <div className="flex items-start justify-between mb-2">
-                          <span className="text-xs text-gray-400 font-medium">
-                            {format(new Date(meal.created_at), "HH:mm")}
-                          </span>
-                          <button
-                            onClick={() => deleteMeal(meal.id)}
-                            className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-400 transition-all"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                    {typeMeals.map((meal) => {
+                      const isEditing = editingMealId === meal.id;
 
-                        {meal.food_items && meal.food_items.length > 0 && (
-                          <div className="mb-2 space-y-0.5">
-                            {meal.food_items.map((item, j) => (
-                              <div
-                                key={item.id || j}
-                                className="flex justify-between text-sm py-1 px-1"
-                              >
-                                <span className="text-gray-700 font-medium">
-                                  {item.name}
-                                  <span className="text-gray-400 font-normal ml-1 text-xs">
-                                    {item.quantity}{item.unit}
-                                  </span>
-                                </span>
-                                <span className="text-gray-500 font-semibold text-xs">
-                                  {Math.round(item.calories)} kcal
-                                </span>
-                              </div>
-                            ))}
+                      return (
+                        <div key={meal.id} className={`card p-4 ${isEditing ? "ring-2 ring-emerald-400 ring-offset-1" : "card-hover"}`}>
+                          <div className="flex items-start justify-between mb-2">
+                            <span className="text-xs text-gray-400 font-medium">
+                              {format(new Date(meal.created_at), "HH:mm")}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              {isEditing ? (
+                                <>
+                                  <button
+                                    onClick={cancelEditMeal}
+                                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-all"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={saveEditMeal}
+                                    disabled={savingEdit || editFoodItems.length === 0}
+                                    className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-500 hover:text-emerald-600 transition-all"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => startEditMeal(meal)}
+                                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-gray-500 transition-all"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => deleteMeal(meal.id)}
+                                    className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-400 transition-all"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
-                        )}
 
-                        <div className="flex gap-3 text-xs font-semibold pt-2 border-t border-gray-100/50">
-                          <span className="pill-green pill">
-                            {Math.round(meal.total_calories)} kcal
-                          </span>
-                          <span className="text-blue-500">
-                            P: {Math.round(meal.total_protein)}g
-                          </span>
-                          <span className="text-orange-500">
-                            G: {Math.round(meal.total_carbs)}g
-                          </span>
-                          <span className="text-purple-500">
-                            L: {Math.round(meal.total_fat)}g
-                          </span>
+                          {isEditing ? (
+                            /* Edit mode */
+                            <div className="mb-2 space-y-2">
+                              {editFoodItems.map((item, j) => (
+                                <div
+                                  key={item.id || j}
+                                  className="flex items-center gap-2 py-2 px-2 rounded-lg bg-white/50 border border-gray-100"
+                                >
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-gray-700 truncate">{item.name}</p>
+                                    <div className="flex items-center gap-1.5 mt-1">
+                                      <button
+                                        onClick={() => updateEditItem(j, Math.max(1, item.quantity - (item.unit === "g" || item.unit === "ml" ? 10 : 1)))}
+                                        className="w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
+                                      >
+                                        <Minus className="w-3 h-3 text-gray-600" />
+                                      </button>
+                                      <input
+                                        type="number"
+                                        value={item.quantity}
+                                        onChange={(e) => updateEditItem(j, Math.max(1, parseInt(e.target.value) || 1))}
+                                        className="w-14 text-center text-xs font-bold bg-white rounded px-1.5 py-0.5 border border-gray-200"
+                                      />
+                                      <span className="text-[10px] text-gray-400">{item.unit}</span>
+                                      <button
+                                        onClick={() => updateEditItem(j, item.quantity + (item.unit === "g" || item.unit === "ml" ? 10 : 1))}
+                                        className="w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
+                                      >
+                                        <Plus className="w-3 h-3 text-gray-600" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <span className="text-xs font-semibold text-gray-500">{Math.round(item.calories)} kcal</span>
+                                  <button
+                                    onClick={() => removeEditItem(j)}
+                                    className="p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-400 transition-all"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ))}
+                              {editFoodItems.length === 0 && (
+                                <p className="text-xs text-gray-400 text-center py-2">Aucun aliment — le repas sera vide</p>
+                              )}
+                            </div>
+                          ) : (
+                            /* View mode */
+                            meal.food_items && meal.food_items.length > 0 && (
+                              <div className="mb-2 space-y-0.5">
+                                {meal.food_items.map((item, j) => (
+                                  <div
+                                    key={item.id || j}
+                                    className="flex justify-between text-sm py-1 px-1"
+                                  >
+                                    <span className="text-gray-700 font-medium">
+                                      {item.name}
+                                      <span className="text-gray-400 font-normal ml-1 text-xs">
+                                        {item.quantity}{item.unit}
+                                      </span>
+                                    </span>
+                                    <span className="text-gray-500 font-semibold text-xs">
+                                      {Math.round(item.calories)} kcal
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )
+                          )}
+
+                          <div className="flex gap-3 text-xs font-semibold pt-2 border-t border-gray-100/50">
+                            {isEditing ? (
+                              <>
+                                <span className="pill-green pill">
+                                  {Math.round(editFoodItems.reduce((s, f) => s + f.calories, 0))} kcal
+                                </span>
+                                <span className="text-blue-500">
+                                  P: {Math.round(editFoodItems.reduce((s, f) => s + f.protein, 0))}g
+                                </span>
+                                <span className="text-orange-500">
+                                  G: {Math.round(editFoodItems.reduce((s, f) => s + f.carbs, 0))}g
+                                </span>
+                                <span className="text-purple-500">
+                                  L: {Math.round(editFoodItems.reduce((s, f) => s + f.fat, 0))}g
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="pill-green pill">
+                                  {Math.round(meal.total_calories)} kcal
+                                </span>
+                                <span className="text-blue-500">
+                                  P: {Math.round(meal.total_protein)}g
+                                </span>
+                                <span className="text-orange-500">
+                                  G: {Math.round(meal.total_carbs)}g
+                                </span>
+                                <span className="text-purple-500">
+                                  L: {Math.round(meal.total_fat)}g
+                                </span>
+                              </>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

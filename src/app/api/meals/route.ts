@@ -67,6 +67,59 @@ export async function POST(request: Request) {
   return Response.json(data);
 }
 
+export async function PUT(request: Request) {
+  const body = await request.json();
+  const { id, food_items, total_calories, total_protein, total_carbs, total_fat } = body;
+
+  // Update meal totals
+  const { error: mealError } = await supabase
+    .from("meals")
+    .update({ total_calories, total_protein, total_carbs, total_fat })
+    .eq("id", id);
+
+  if (mealError)
+    return Response.json({ error: mealError.message }, { status: 500 });
+
+  // Delete old food items and insert new ones
+  if (food_items) {
+    const { error: deleteError } = await supabase
+      .from("food_items")
+      .delete()
+      .eq("meal_id", id);
+
+    if (deleteError)
+      return Response.json({ error: deleteError.message }, { status: 500 });
+
+    if (food_items.length > 0) {
+      const items = food_items.map((item: Record<string, unknown>) => ({
+        name: item.name,
+        quantity: item.quantity,
+        unit: item.unit,
+        calories: item.calories,
+        protein: item.protein,
+        carbs: item.carbs,
+        fat: item.fat,
+        meal_id: id,
+      }));
+      const { error: insertError } = await supabase
+        .from("food_items")
+        .insert(items);
+
+      if (insertError)
+        return Response.json({ error: insertError.message }, { status: 500 });
+    }
+  }
+
+  // Return updated meal with food items
+  const { data } = await supabase
+    .from("meals")
+    .select("*, food_items(*)")
+    .eq("id", id)
+    .single();
+
+  return Response.json(data);
+}
+
 export async function DELETE(request: Request) {
   const { id } = await request.json();
   const { error } = await supabase.from("meals").delete().eq("id", id);

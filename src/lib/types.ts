@@ -5,6 +5,7 @@ export interface Profile {
   daily_protein_goal: number;
   daily_carbs_goal: number;
   daily_fat_goal: number;
+  claude_api_key: string | null;
   created_at: string;
 }
 
