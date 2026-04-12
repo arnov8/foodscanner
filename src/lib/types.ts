@@ -5,7 +5,11 @@ export interface Profile {
   daily_protein_goal: number;
   daily_carbs_goal: number;
   daily_fat_goal: number;
-  claude_api_key: string | null;
+  sex: string;
+  age: number;
+  height: number;
+  activity_level: number;
+  deficit_target: number;
   created_at: string;
 }
 
@@ -33,6 +37,14 @@ export interface FoodItem {
   protein: number;
   carbs: number;
   fat: number;
+}
+
+export interface WeightEntry {
+  id: string;
+  profile_id: string;
+  date: string;
+  weight: number;
+  created_at: string;
 }
 
 export interface DailySummary {

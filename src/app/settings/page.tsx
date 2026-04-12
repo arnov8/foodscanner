@@ -15,7 +15,6 @@ import {
   Beef,
   Wheat,
   Droplets,
-  Key,
 } from "lucide-react";
 
 export default function SettingsPage() {
@@ -29,7 +28,6 @@ export default function SettingsPage() {
     daily_protein_goal: 150,
     daily_carbs_goal: 250,
     daily_fat_goal: 65,
-    claude_api_key: "" as string | null,
   });
 
   const startCreate = () => {
@@ -46,7 +44,6 @@ export default function SettingsPage() {
       daily_protein_goal: profile.daily_protein_goal,
       daily_carbs_goal: profile.daily_carbs_goal,
       daily_fat_goal: profile.daily_fat_goal,
-      claude_api_key: profile.claude_api_key,
     });
   };
 
@@ -285,32 +282,6 @@ export default function SettingsPage() {
                 </div>
               ))}
             </div>
-
-            {/* API Key field - only for profiles that have one (non-grandfathered) */}
-            {editing.claude_api_key !== null && (
-              <div className="glass p-4 rounded-2xl">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-7 h-7 gradient-purple rounded-lg flex items-center justify-center">
-                    <Key className="w-3.5 h-3.5 text-white" />
-                  </div>
-                  <span className="text-xs font-bold text-gray-600">
-                    Cle API Claude
-                  </span>
-                </div>
-                <input
-                  type="password"
-                  value={form.claude_api_key || ""}
-                  onChange={(e) =>
-                    setForm({ ...form, claude_api_key: e.target.value })
-                  }
-                  placeholder="sk-ant-api03-..."
-                  className="w-full input-glass text-sm font-mono"
-                />
-                <p className="text-[10px] text-gray-400 mt-1 font-medium">
-                  Necessaire pour les analyses IA
-                </p>
-              </div>
-            )}
 
             <div className="flex gap-3 pt-2">
               <button

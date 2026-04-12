@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useProfiles } from "@/lib/hooks";
-import type { Meal, FoodItem } from "@/lib/types";
+import type { Meal, FoodItem, WeightEntry } from "@/lib/types";
 import ProfileSelector from "@/components/ProfileSelector";
 import CalorieRing from "@/components/CalorieRing";
 import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
-  Camera,
   Flame,
   TrendingDown,
   TrendingUp,
@@ -28,6 +28,9 @@ import {
   Check,
   X,
   Minus,
+  Scale,
+  AlertTriangle,
+  BarChart3,
 } from "lucide-react";
 import { format, addDays, subDays, isToday, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -39,19 +42,45 @@ const MEAL_SECTIONS = [
   { type: "snack", label: "Snack", icon: UtensilsCrossed, pill: "pill-pink" },
 ];
 
-export default function Dashboard() {
+export default function DashboardWrapper() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="w-14 h-14 border-4 border-emerald-100 border-t-emerald-500 rounded-full animate-spin-slow" /></div>}>
+      <Dashboard />
+    </Suspense>
+  );
+}
+
+function Dashboard() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const {
     profiles,
     activeProfile,
     activeProfileId,
     setActiveProfileId,
     loading,
+    refetch: refetchProfiles,
   } = useProfiles();
   const [meals, setMeals] = useState<Meal[]>([]);
-  const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const initialDate = searchParams.get("date") || format(new Date(), "yyyy-MM-dd");
+  const [date, setDateState] = useState(initialDate);
   const [loadingMeals, setLoadingMeals] = useState(false);
   const dateInputRef = useRef<HTMLInputElement>(null);
   const isTodaySelected = isToday(parseISO(date));
+
+  // Weight state
+  const [todayWeight, setTodayWeight] = useState<number | null>(null);
+  const [weightInput, setWeightInput] = useState("");
+  const [editingWeight, setEditingWeight] = useState(false);
+  const [savingWeight, setSavingWeight] = useState(false);
+
+  // Rolling average state
+  const [weeklyCalories, setWeeklyCalories] = useState<{ date: string; calories: number }[]>([]);
+
+  const setDate = (newDate: string) => {
+    setDateState(newDate);
+    router.replace(`/?date=${newDate}`, { scroll: false });
+  };
 
   const fetchMeals = useCallback(async () => {
     if (!activeProfileId) return;
@@ -64,9 +93,69 @@ export default function Dashboard() {
     setLoadingMeals(false);
   }, [activeProfileId, date]);
 
+  // Fetch weight for selected date
+  const fetchWeight = useCallback(async () => {
+    if (!activeProfileId) return;
+    const res = await fetch(`/api/weight?profile_id=${activeProfileId}&date=${date}`);
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0) {
+      setTodayWeight(data[0].weight);
+      setWeightInput(String(data[0].weight));
+    } else {
+      setTodayWeight(null);
+      setWeightInput("");
+    }
+  }, [activeProfileId, date]);
+
+  // Fetch last 7 days for rolling average
+  const fetchWeeklyData = useCallback(async () => {
+    if (!activeProfileId) return;
+    const to = date;
+    const from = format(subDays(parseISO(date), 6), "yyyy-MM-dd");
+    const res = await fetch(
+      `/api/meals?profile_id=${activeProfileId}&from=${from}&to=${to}`
+    );
+    const data = await res.json();
+    if (!Array.isArray(data)) return;
+
+    // Group by date
+    const byDate: Record<string, number> = {};
+    for (let i = 6; i >= 0; i--) {
+      const d = format(subDays(parseISO(date), i), "yyyy-MM-dd");
+      byDate[d] = 0;
+    }
+    data.forEach((m: Meal) => {
+      if (byDate[m.date] !== undefined) {
+        byDate[m.date] += m.total_calories;
+      }
+    });
+    setWeeklyCalories(
+      Object.entries(byDate).map(([d, cal]) => ({ date: d, calories: Math.round(cal) }))
+    );
+  }, [activeProfileId, date]);
+
   useEffect(() => {
     fetchMeals();
-  }, [fetchMeals]);
+    fetchWeight();
+    fetchWeeklyData();
+  }, [fetchMeals, fetchWeight, fetchWeeklyData]);
+
+  const saveWeight = async () => {
+    if (!activeProfileId || !weightInput.trim()) return;
+    const w = parseFloat(weightInput);
+    if (isNaN(w) || w < 20 || w > 300) return;
+    setSavingWeight(true);
+    await fetch("/api/weight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profile_id: activeProfileId, date, weight: w }),
+    });
+    setTodayWeight(w);
+    setEditingWeight(false);
+    setSavingWeight(false);
+    // Refetch profile since goals may have been recalculated
+    await refetchProfiles();
+  };
 
   const deleteMeal = async (id: string) => {
     await fetch("/api/meals", {
@@ -75,6 +164,7 @@ export default function Dashboard() {
       body: JSON.stringify({ id }),
     });
     fetchMeals();
+    fetchWeeklyData();
   };
 
   // Meal editing state
@@ -132,6 +222,7 @@ export default function Dashboard() {
     setSavingEdit(false);
     cancelEditMeal();
     fetchMeals();
+    fetchWeeklyData();
   };
 
   const totals = meals.reduce(
@@ -153,6 +244,22 @@ export default function Dashboard() {
     ...section,
     meals: meals.filter((m) => m.meal_type === section.type),
   }));
+
+  // Incomplete day detection: fewer than 2 main meals (breakfast/lunch/dinner) logged
+  const mainMealTypes = ["breakfast", "lunch", "dinner"];
+  const loggedMainMeals = mainMealTypes.filter((t) =>
+    meals.some((m) => m.meal_type === t)
+  );
+  const isIncomplete = isTodaySelected && totals.calories > 0 && loggedMainMeals.length < 2;
+
+  // 7-day rolling average
+  const rollingAvg = weeklyCalories.length > 0
+    ? Math.round(weeklyCalories.reduce((s, d) => s + d.calories, 0) / weeklyCalories.filter(d => d.calories > 0).length || 0)
+    : 0;
+  const daysWithData = weeklyCalories.filter(d => d.calories > 0).length;
+
+  // Mini bar chart max
+  const maxWeeklyCal = Math.max(...weeklyCalories.map(d => d.calories), goal);
 
   if (loading) {
     return (
@@ -248,6 +355,80 @@ export default function Dashboard() {
             Aujourd&apos;hui
           </button>
         )}
+      </div>
+
+      {/* Incomplete day warning */}
+      {isIncomplete && (
+        <div className="glass p-4 mb-4 border-l-4 border-l-amber-400 flex items-center gap-3 animate-fade-in">
+          <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-gray-700">Journee incomplete</p>
+            <p className="text-xs text-gray-400">
+              Seulement {loggedMainMeals.length}/3 repas principaux enregistres ({loggedMainMeals.map(t =>
+                t === "breakfast" ? "petit-dej" : t === "lunch" ? "dejeuner" : "diner"
+              ).join(", ") || "aucun"})
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Weight card */}
+      <div className="glass p-4 mb-4 animate-fade-in">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 gradient-purple rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/20">
+              <Scale className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-medium">Poids du jour</p>
+              {!editingWeight ? (
+                <p className="text-lg font-bold text-gray-800">
+                  {todayWeight ? `${todayWeight} kg` : "Non renseigne"}
+                </p>
+              ) : (
+                <div className="flex items-center gap-2 mt-0.5">
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={weightInput}
+                    onChange={(e) => setWeightInput(e.target.value)}
+                    placeholder="75.0"
+                    className="w-20 input-glass text-sm font-bold py-1 px-2"
+                    autoFocus
+                    onKeyDown={(e) => e.key === "Enter" && saveWeight()}
+                  />
+                  <span className="text-xs text-gray-400">kg</span>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            {editingWeight ? (
+              <>
+                <button
+                  onClick={() => { setEditingWeight(false); setWeightInput(todayWeight ? String(todayWeight) : ""); }}
+                  className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-all"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={saveWeight}
+                  disabled={savingWeight}
+                  className="p-2 rounded-lg hover:bg-emerald-50 text-emerald-500 hover:text-emerald-600 transition-all"
+                >
+                  <Check className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => { setEditingWeight(true); setWeightInput(todayWeight ? String(todayWeight) : ""); }}
+                className="p-2 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-gray-500 transition-all"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Main calorie card */}
@@ -352,6 +533,69 @@ export default function Dashboard() {
         ))}
       </div>
 
+      {/* 7-day rolling average + mini chart */}
+      {weeklyCalories.length > 0 && (
+        <div className="glass p-5 mb-6 animate-fade-in">
+          <div className="flex items-center gap-2 mb-4">
+            <BarChart3 className="w-4 h-4 text-gray-400" />
+            <h3 className="text-sm font-bold text-gray-700">7 derniers jours</h3>
+            {daysWithData > 0 && (
+              <span className={`pill text-[10px] ml-auto ${rollingAvg <= goal ? "pill-green" : "pill-red"}`}>
+                Moy: {rollingAvg} kcal
+              </span>
+            )}
+          </div>
+          <div className="flex items-end gap-1.5 h-20">
+            {weeklyCalories.map((d) => {
+              const pct = maxWeeklyCal > 0 ? (d.calories / maxWeeklyCal) * 100 : 0;
+              const isOver = d.calories > goal;
+              const isSelected = d.date === date;
+              return (
+                <button
+                  key={d.date}
+                  onClick={() => setDate(d.date)}
+                  className={`flex-1 rounded-t-lg transition-all relative group ${
+                    isSelected ? "ring-2 ring-emerald-400 ring-offset-1 rounded-lg" : ""
+                  }`}
+                  style={{
+                    height: `${Math.max(pct, 4)}%`,
+                    background: d.calories === 0
+                      ? "rgba(0,0,0,0.05)"
+                      : isOver
+                        ? "linear-gradient(to top, #ef4444, #f87171)"
+                        : "linear-gradient(to top, #10b981, #34d399)",
+                  }}
+                >
+                  <div className="absolute -top-5 left-1/2 -translate-x-1/2 hidden group-hover:block">
+                    <span className="text-[9px] font-bold text-gray-500 whitespace-nowrap">
+                      {d.calories > 0 ? d.calories : "—"}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex gap-1.5 mt-1.5">
+            {weeklyCalories.map((d) => (
+              <div key={d.date} className="flex-1 text-center">
+                <span className={`text-[9px] font-medium ${d.date === date ? "text-emerald-600" : "text-gray-400"}`}>
+                  {format(parseISO(d.date), "EEE", { locale: fr }).charAt(0).toUpperCase()}
+                </span>
+              </div>
+            ))}
+          </div>
+          {/* Goal line indicator */}
+          <div className="flex justify-between mt-2 text-[10px] text-gray-400">
+            <span>Objectif: {goal} kcal/j</span>
+            {daysWithData > 1 && (
+              <span className={rollingAvg <= goal ? "text-emerald-500" : "text-red-500"}>
+                {rollingAvg <= goal ? "Deficit moyen respecte" : "Surplus moyen detecte"}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Meals grouped by type */}
       {loadingMeals ? (
         <div className="glass p-12 text-center">
@@ -376,7 +620,7 @@ export default function Dashboard() {
                     )}
                   </div>
                   <Link
-                    href="/analyze"
+                    href={`/analyze?date=${date}`}
                     className="p-1.5 rounded-lg hover:bg-white/60 text-gray-400 hover:text-emerald-500 transition-all"
                   >
                     <Plus className="w-4 h-4" />
@@ -386,7 +630,7 @@ export default function Dashboard() {
                 {/* Meals */}
                 {typeMeals.length === 0 ? (
                   <Link
-                    href="/analyze"
+                    href={`/analyze?date=${date}`}
                     className="card p-4 flex items-center justify-center gap-2 text-gray-400 hover:text-emerald-500 hover:border-emerald-200 transition-all border border-dashed border-gray-200"
                   >
                     <Plus className="w-4 h-4" />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, Suspense } from "react";
 import { useProfiles } from "@/lib/hooks";
 import type { AnalysisResult } from "@/lib/types";
 import ProfileSelector from "@/components/ProfileSelector";
@@ -21,8 +21,12 @@ import {
   Trash2,
   Minus,
   Plus,
+  CalendarDays,
+  PlusCircle,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { format, parseISO } from "date-fns";
+import { fr } from "date-fns/locale";
 
 const MEAL_TYPES = [
   { value: "breakfast", label: "Petit-dejeuner", icon: Coffee, color: "gradient-orange", shadow: "shadow-orange-500/20" },
@@ -31,8 +35,17 @@ const MEAL_TYPES = [
   { value: "snack", label: "Snack", icon: UtensilsCrossed, color: "gradient-green", shadow: "shadow-green-500/20" },
 ];
 
-export default function AnalyzePage() {
+export default function AnalyzePageWrapper() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="w-14 h-14 border-4 border-emerald-100 border-t-emerald-500 rounded-full animate-spin-slow" /></div>}>
+      <AnalyzePage />
+    </Suspense>
+  );
+}
+
+function AnalyzePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { profiles, activeProfileId, setActiveProfileId } = useProfiles();
   const [mealType, setMealType] = useState<string | null>(null);
   const [mode, setMode] = useState<"photo" | "text" | null>(null);
@@ -46,6 +59,16 @@ export default function AnalyzePage() {
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  // Date selection - defaults to today or from URL param
+  const initialDate = searchParams.get("date") || format(new Date(), "yyyy-MM-dd");
+  const [mealDate, setMealDate] = useState(initialDate);
+  const dateInputRef = useRef<HTMLInputElement>(null);
+
+  // Add extra foods state
+  const [showAddExtra, setShowAddExtra] = useState(false);
+  const [extraText, setExtraText] = useState("");
+  const [analyzingExtra, setAnalyzingExtra] = useState(false);
 
   const handleFile = (file: File) => {
     setError(null);
@@ -70,8 +93,8 @@ export default function AnalyzePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           image
-            ? { image, mimeType, profile_id: activeProfileId }
-            : { text: textInput.trim(), profile_id: activeProfileId }
+            ? { image, mimeType }
+            : { text: textInput.trim() }
         ),
       });
       const data = await res.json();
@@ -81,6 +104,39 @@ export default function AnalyzePage() {
       setError("Erreur lors de l'analyse. Reessayez.");
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const analyzeExtra = async () => {
+    if (!extraText.trim() || !result) return;
+    setAnalyzingExtra(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: extraText.trim() }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        // Merge new foods into existing result
+        const mergedFoods = [...result.foods, ...data.foods];
+        setResult({
+          foods: mergedFoods,
+          total_calories: mergedFoods.reduce((s, f) => s + f.calories, 0),
+          total_protein: mergedFoods.reduce((s, f) => s + f.protein, 0),
+          total_carbs: mergedFoods.reduce((s, f) => s + f.carbs, 0),
+          total_fat: mergedFoods.reduce((s, f) => s + f.fat, 0),
+        });
+        setExtraText("");
+        setShowAddExtra(false);
+      }
+    } catch {
+      setError("Erreur lors de l'analyse complementaire.");
+    } finally {
+      setAnalyzingExtra(false);
     }
   };
 
@@ -94,7 +150,7 @@ export default function AnalyzePage() {
         body: JSON.stringify({
           profile_id: activeProfileId,
           meal_type: mealType,
-          date: new Date().toISOString().split("T")[0],
+          date: mealDate,
           total_calories: result.total_calories,
           total_protein: result.total_protein,
           total_carbs: result.total_carbs,
@@ -102,7 +158,7 @@ export default function AnalyzePage() {
           food_items: result.foods,
         }),
       });
-      if (res.ok) router.push("/");
+      if (res.ok) router.push(`/?date=${mealDate}`);
       else setError("Erreur lors de la sauvegarde");
     } catch {
       setError("Erreur lors de la sauvegarde");
@@ -118,6 +174,8 @@ export default function AnalyzePage() {
     setResult(null);
     setError(null);
     setMode(null);
+    setShowAddExtra(false);
+    setExtraText("");
   };
 
   const fullReset = () => {
@@ -167,6 +225,17 @@ export default function AnalyzePage() {
 
   const selectedMeal = MEAL_TYPES.find((m) => m.value === mealType);
 
+  const formattedDate = (() => {
+    try {
+      const d = parseISO(mealDate);
+      const today = format(new Date(), "yyyy-MM-dd");
+      if (mealDate === today) return "Aujourd'hui";
+      return format(d, "EEEE d MMMM", { locale: fr });
+    } catch {
+      return mealDate;
+    }
+  })();
+
   return (
     <div className="max-w-2xl mx-auto p-4 md:p-8">
       <div className="float-orb w-72 h-72 bg-emerald-200 -top-20 right-0" />
@@ -186,6 +255,32 @@ export default function AnalyzePage() {
           activeProfileId={activeProfileId}
           onSelect={setActiveProfileId}
         />
+      </div>
+
+      {/* Date selector */}
+      <div className="glass-strong flex items-center justify-center gap-3 mb-6 py-3 px-4 animate-fade-in">
+        <CalendarDays className="w-4 h-4 text-gray-400" />
+        <button
+          onClick={() => dateInputRef.current?.showPicker()}
+          className="text-sm font-semibold text-gray-700 hover:bg-white/50 rounded-xl px-3 py-1.5 transition-all capitalize"
+        >
+          {formattedDate}
+        </button>
+        <input
+          ref={dateInputRef}
+          type="date"
+          value={mealDate}
+          onChange={(e) => e.target.value && setMealDate(e.target.value)}
+          className="absolute opacity-0 w-0 h-0 pointer-events-none"
+        />
+        {mealDate !== format(new Date(), "yyyy-MM-dd") && (
+          <button
+            onClick={() => setMealDate(format(new Date(), "yyyy-MM-dd"))}
+            className="text-xs font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-xl transition-all"
+          >
+            Aujourd&apos;hui
+          </button>
+        )}
       </div>
 
       {/* Step 1: Choose meal type */}
@@ -397,7 +492,7 @@ export default function AnalyzePage() {
             <textarea
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
-              placeholder="Ex: Un steak haché avec des frites et une salade verte, un verre de coca..."
+              placeholder="Ex: Un steak hache avec des frites et une salade verte, un verre de coca..."
               rows={4}
               className="w-full input-glass text-base resize-none leading-relaxed"
               autoFocus
@@ -529,6 +624,56 @@ export default function AnalyzePage() {
                 </div>
               ))}
             </div>
+
+            {/* Add forgotten foods */}
+            {!showAddExtra ? (
+              <button
+                onClick={() => setShowAddExtra(true)}
+                className="mt-4 w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-dashed border-gray-200 hover:border-emerald-300 text-gray-400 hover:text-emerald-500 transition-all"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span className="text-sm font-medium">Ajouter un aliment oublie</span>
+              </button>
+            ) : (
+              <div className="mt-4 p-4 rounded-xl bg-emerald-50/50 border border-emerald-100">
+                <label className="text-sm font-bold text-gray-700 mb-2 block">
+                  Decrivez les aliments oublies
+                </label>
+                <textarea
+                  value={extraText}
+                  onChange={(e) => setExtraText(e.target.value)}
+                  placeholder="Ex: un yaourt nature, une pomme, un cafe avec du lait..."
+                  rows={2}
+                  className="w-full input-glass text-sm resize-none leading-relaxed"
+                  autoFocus
+                />
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={() => { setShowAddExtra(false); setExtraText(""); }}
+                    className="btn-secondary text-xs py-2 px-4"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={analyzeExtra}
+                    disabled={analyzingExtra || !extraText.trim()}
+                    className="btn-primary text-xs py-2 px-4 flex items-center gap-2"
+                  >
+                    {analyzingExtra ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Analyse...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Analyser et ajouter
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Actions */}

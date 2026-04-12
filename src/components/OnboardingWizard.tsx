@@ -10,7 +10,6 @@ import {
   Wheat,
   Droplets,
   Target,
-  Key,
 } from "lucide-react";
 
 interface OnboardingData {
@@ -21,7 +20,6 @@ interface OnboardingData {
   height: number;
   activity: number;
   deficit: number;
-  claude_api_key: string;
 }
 
 interface Goals {
@@ -66,7 +64,6 @@ const STEPS = [
   { title: "Taille", subtitle: "En centimetres" },
   { title: "Activite", subtitle: "Votre niveau d'activite physique" },
   { title: "Objectif", subtitle: "Quel deficit calorique visez-vous ?" },
-  { title: "Cle API", subtitle: "Connectez votre compte Claude" },
   { title: "Resultats", subtitle: "Vos objectifs personnalises" },
 ];
 
@@ -91,7 +88,11 @@ interface Props {
     daily_protein_goal: number;
     daily_carbs_goal: number;
     daily_fat_goal: number;
-    claude_api_key: string;
+    sex: string;
+    age: number;
+    height: number;
+    activity_level: number;
+    deficit_target: number;
   }) => void;
   onCancel: () => void;
 }
@@ -107,7 +108,6 @@ export default function OnboardingWizard({ onComplete, onCancel }: Props) {
     height: 175,
     activity: 1.375,
     deficit: 500,
-    claude_api_key: "",
   });
 
   const goals = calculateGoals(data);
@@ -117,7 +117,6 @@ export default function OnboardingWizard({ onComplete, onCancel }: Props) {
     if (step === 2) return data.age > 0 && data.age < 120;
     if (step === 3) return data.weight > 20 && data.weight < 300;
     if (step === 4) return data.height > 100 && data.height < 250;
-    if (step === 7) return data.claude_api_key.trim().startsWith("sk-ant-");
     return true;
   };
 
@@ -139,7 +138,11 @@ export default function OnboardingWizard({ onComplete, onCancel }: Props) {
       daily_protein_goal: goals.daily_protein_goal,
       daily_carbs_goal: goals.daily_carbs_goal,
       daily_fat_goal: goals.daily_fat_goal,
-      claude_api_key: data.claude_api_key.trim(),
+      sex: data.sex,
+      age: data.age,
+      height: data.height,
+      activity_level: data.activity,
+      deficit_target: data.deficit,
     });
     setSaving(false);
   };
@@ -374,48 +377,8 @@ export default function OnboardingWizard({ onComplete, onCancel }: Props) {
           </div>
         )}
 
-        {/* Step 7: Claude API Key */}
+        {/* Step 7: Results */}
         {step === 7 && (
-          <div className="animate-fade-in space-y-4">
-            <div className="glass p-5 rounded-2xl text-center">
-              <div className="w-16 h-16 gradient-purple rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-purple-500/20">
-                <Key className="w-8 h-8 text-white" />
-              </div>
-              <p className="text-sm text-gray-500 leading-relaxed mb-4">
-                Pour utiliser l&apos;analyse photo et calorique, vous devez connecter votre propre compte Claude (Anthropic).
-              </p>
-              <a
-                href="https://console.anthropic.com/settings/keys"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-emerald-600 font-semibold hover:underline"
-              >
-                Obtenir une cle API sur console.anthropic.com →
-              </a>
-            </div>
-            <div>
-              <label className="text-sm font-bold text-gray-700 mb-2 block">
-                Cle API Claude
-              </label>
-              <input
-                type="password"
-                value={data.claude_api_key}
-                onChange={(e) => setData({ ...data, claude_api_key: e.target.value })}
-                placeholder="sk-ant-api03-..."
-                className="w-full input-glass text-base font-mono"
-                autoFocus
-              />
-              {data.claude_api_key.trim() && !data.claude_api_key.trim().startsWith("sk-ant-") && (
-                <p className="text-xs text-red-500 mt-2">
-                  La cle doit commencer par &quot;sk-ant-&quot;
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Step 8: Results */}
-        {step === 8 && (
           <div className="animate-fade-in space-y-4">
             <div className="glass-dark p-5 rounded-2xl text-center">
               <div className="flex items-center justify-center gap-2 mb-2">

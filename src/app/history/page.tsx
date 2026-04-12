@@ -6,7 +6,8 @@ import type { Meal } from "@/lib/types";
 import ProfileSelector from "@/components/ProfileSelector";
 import { format, subDays, startOfWeek, endOfWeek } from "date-fns";
 import { fr } from "date-fns/locale";
-import { Calendar, TrendingDown, TrendingUp, Trash2 } from "lucide-react";
+import { Calendar, TrendingDown, TrendingUp, Trash2, ChevronRight } from "lucide-react";
+import Link from "next/link";
 
 export default function HistoryPage() {
   const { profiles, activeProfile, activeProfileId, setActiveProfileId } =
@@ -146,8 +147,11 @@ export default function HistoryPage() {
                 className="animate-fade-in"
                 style={{ animationDelay: `${dateIdx * 80}ms` }}
               >
-                {/* Day header */}
-                <div className="glass-strong flex items-center justify-between p-4 mb-2">
+                {/* Day header - clickable to navigate to dashboard */}
+                <Link
+                  href={`/?date=${date}`}
+                  className="glass-strong flex items-center justify-between p-4 mb-2 hover:ring-2 hover:ring-emerald-300 transition-all cursor-pointer"
+                >
                   <div className="flex items-center gap-3">
                     <div
                       className={`w-3 h-3 rounded-full ${deficit > 0 ? "bg-emerald-400" : "bg-red-400"}`}
@@ -171,8 +175,9 @@ export default function HistoryPage() {
                       {deficit > 0 ? "-" : "+"}
                       {Math.abs(Math.round(deficit))}
                     </span>
+                    <ChevronRight className="w-4 h-4 text-gray-300" />
                   </div>
-                </div>
+                </Link>
 
                 {/* Day meals */}
                 <div className="space-y-2 pl-4">

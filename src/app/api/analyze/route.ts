@@ -1,5 +1,4 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { supabase } from "@/lib/supabase";
 
 const NUTRITION_PROMPT = `Analyse ce repas/aliment. Identifie chaque aliment et estime les valeurs nutritionnelles.
 
@@ -29,27 +28,12 @@ Regles :
 - Les totaux doivent etre la somme des aliments individuels
 - Si tu ne peux pas identifier le plat, retourne {"error": "Impossible d'identifier les aliments"}`;
 
-async function getApiKeyForProfile(profileId: string): Promise<string | null> {
-  if (!profileId) return process.env.ANTHROPIC_API_KEY || null;
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("claude_api_key")
-    .eq("id", profileId)
-    .single();
-
-  // If profile has its own key, use it. Otherwise fall back to server key.
-  if (profile?.claude_api_key) {
-    return profile.claude_api_key;
-  }
-
-  return process.env.ANTHROPIC_API_KEY || null;
-}
+const anthropic = new Anthropic();
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { image, mimeType, text, profile_id } = body;
+    const { image, mimeType, text } = body;
 
     if (!image && !text) {
       return Response.json(
@@ -57,16 +41,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-
-    const apiKey = await getApiKeyForProfile(profile_id);
-    if (!apiKey) {
-      return Response.json(
-        { error: "Cle API Claude manquante. Ajoutez votre cle dans les parametres du profil." },
-        { status: 403 }
-      );
-    }
-
-    const anthropic = new Anthropic({ apiKey });
 
     const content: Anthropic.MessageCreateParams["messages"][0]["content"] = [];
 
