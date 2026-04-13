@@ -86,7 +86,13 @@ export async function POST(request: Request) {
           );
         }
 
-        const result = JSON.parse(textContent.text);
+        // Strip markdown code fences if the model wraps JSON in ```json ... ```
+        let jsonStr = textContent.text.trim();
+        if (jsonStr.startsWith("```")) {
+          jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+        }
+
+        const result = JSON.parse(jsonStr);
 
         if (result.error) {
           return Response.json({ error: result.error }, { status: 422 });
