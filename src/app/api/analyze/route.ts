@@ -28,7 +28,8 @@ Regles :
 - Les totaux doivent etre la somme des aliments individuels
 - Si tu ne peux pas identifier le plat, retourne {"error": "Impossible d'identifier les aliments"}`;
 
-const anthropic = new Anthropic();
+// No automatic retries — we handle fallback manually
+const anthropic = new Anthropic({ maxRetries: 0 });
 
 const MODELS = ["claude-sonnet-4-20250514", "claude-haiku-4-5-20251001"];
 
