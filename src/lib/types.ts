@@ -10,6 +10,8 @@ export interface Profile {
   height: number;
   activity_level: number;
   deficit_target: number;
+  claude_api_key: string | null;
+  is_admin: boolean;
   created_at: string;
 }
 

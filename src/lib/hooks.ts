@@ -12,8 +12,9 @@ export function useProfiles() {
   );
   const [loading, setLoading] = useState(true);
 
-  const fetchProfiles = useCallback(async () => {
-    const res = await fetch("/api/profiles");
+  const fetchProfiles = useCallback(async (viewerId?: string) => {
+    const params = viewerId ? `?viewer_id=${viewerId}` : "";
+    const res = await fetch(`/api/profiles${params}`);
     const data = await res.json();
     setProfiles(data);
     setLoading(false);
@@ -23,7 +24,7 @@ export function useProfiles() {
   useEffect(() => {
     const saved = localStorage.getItem(PROFILE_KEY);
     if (saved) setActiveProfileIdState(saved);
-    fetchProfiles().then((data) => {
+    fetchProfiles(saved || undefined).then((data) => {
       if (!saved && data.length > 0) {
         setActiveProfileIdState(data[0].id);
         localStorage.setItem(PROFILE_KEY, data[0].id);
@@ -34,6 +35,8 @@ export function useProfiles() {
   const setActiveProfileId = (id: string) => {
     setActiveProfileIdState(id);
     localStorage.setItem(PROFILE_KEY, id);
+    // Re-fetch profiles with the new viewer to update visibility
+    fetchProfiles(id);
   };
 
   const activeProfile = profiles.find((p) => p.id === activeProfileId) || null;
@@ -44,6 +47,6 @@ export function useProfiles() {
     activeProfileId,
     setActiveProfileId,
     loading,
-    refetch: fetchProfiles,
+    refetch: () => fetchProfiles(activeProfileId || undefined),
   };
 }

@@ -82,16 +82,22 @@ function Dashboard() {
     router.replace(`/?date=${newDate}`, { scroll: false });
   };
 
+  // The viewer is the profile stored in localStorage (the "logged in" user)
+  const viewerProfileId = typeof window !== "undefined"
+    ? localStorage.getItem("food-analyzer-profile-id")
+    : null;
+
   const fetchMeals = useCallback(async () => {
     if (!activeProfileId) return;
     setLoadingMeals(true);
+    const viewerParam = viewerProfileId ? `&viewer_id=${viewerProfileId}` : "";
     const res = await fetch(
-      `/api/meals?profile_id=${activeProfileId}&date=${date}`
+      `/api/meals?profile_id=${activeProfileId}&date=${date}${viewerParam}`
     );
     const data = await res.json();
     setMeals(Array.isArray(data) ? data : []);
     setLoadingMeals(false);
-  }, [activeProfileId, date]);
+  }, [activeProfileId, date, viewerProfileId]);
 
   // Fetch weight for selected date
   const fetchWeight = useCallback(async () => {

@@ -3,12 +3,26 @@ import { supabase } from "@/lib/supabase";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const profileId = searchParams.get("profile_id");
+  const viewerId = searchParams.get("viewer_id");
   const date = searchParams.get("date");
   const from = searchParams.get("from");
   const to = searchParams.get("to");
 
   if (!profileId) {
     return Response.json({ error: "profile_id required" }, { status: 400 });
+  }
+
+  // Non-admin users can only view their own meals
+  if (viewerId && viewerId !== profileId) {
+    const { data: viewer } = await supabase
+      .from("profiles")
+      .select("is_admin")
+      .eq("id", viewerId)
+      .single();
+
+    if (!viewer?.is_admin) {
+      return Response.json({ error: "Not authorized" }, { status: 403 });
+    }
   }
 
   let query = supabase
