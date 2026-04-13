@@ -30,6 +30,8 @@ Regles :
 
 const anthropic = new Anthropic();
 
+const MODELS = ["claude-sonnet-4-20250514", "claude-haiku-4-5-20251001"];
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -65,27 +67,45 @@ export async function POST(request: Request) {
       });
     }
 
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1024,
-      messages: [{ role: "user", content }],
-    });
+    // Try each model, falling back if overloaded
+    let lastError: unknown = null;
+    for (const model of MODELS) {
+      try {
+        const response = await anthropic.messages.create({
+          model,
+          max_tokens: 1024,
+          messages: [{ role: "user", content }],
+        });
 
-    const textContent = response.content.find((c) => c.type === "text");
-    if (!textContent || textContent.type !== "text") {
-      return Response.json(
-        { error: "No text response from AI" },
-        { status: 500 }
-      );
+        const textContent = response.content.find((c) => c.type === "text");
+        if (!textContent || textContent.type !== "text") {
+          return Response.json(
+            { error: "No text response from AI" },
+            { status: 500 }
+          );
+        }
+
+        const result = JSON.parse(textContent.text);
+
+        if (result.error) {
+          return Response.json({ error: result.error }, { status: 422 });
+        }
+
+        return Response.json(result);
+      } catch (err: unknown) {
+        lastError = err;
+        const isOverloaded =
+          err instanceof Anthropic.APIError && err.status === 529;
+        if (!isOverloaded) throw err;
+        // Overloaded — try next model
+      }
     }
 
-    const result = JSON.parse(textContent.text);
-
-    if (result.error) {
-      return Response.json({ error: result.error }, { status: 422 });
-    }
-
-    return Response.json(result);
+    console.error("All models overloaded:", lastError);
+    return Response.json(
+      { error: "Le service IA est temporairement surchargé. Réessayez dans quelques instants." },
+      { status: 529 }
+    );
   } catch (error) {
     console.error("Analysis error:", error);
     return Response.json({ error: "Failed to analyze" }, { status: 500 });
