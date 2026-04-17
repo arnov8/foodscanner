@@ -2,7 +2,7 @@
 
 import { useState, useRef, Suspense } from "react";
 import { useProfiles } from "@/lib/hooks";
-import type { AnalysisResult } from "@/lib/types";
+import type { AnalysisResult, Meal } from "@/lib/types";
 import ProfileSelector from "@/components/ProfileSelector";
 import {
   Camera,
@@ -23,10 +23,21 @@ import {
   Plus,
   CalendarDays,
   PlusCircle,
+  FileText,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, addDays, subDays, getDay } from "date-fns";
 import { fr } from "date-fns/locale";
+
+interface WeeklyReportData {
+  weekStart: string;
+  weekEnd: string;
+  avgCalories: number;
+  calorieGoal: number;
+  daysOnTarget: number;
+  avgProtein: number;
+  totalMeals: number;
+}
 
 const MEAL_TYPES = [
   { value: "breakfast", label: "Petit-dejeuner", icon: Coffee, color: "gradient-orange", shadow: "shadow-orange-500/20" },
@@ -46,7 +57,8 @@ export default function AnalyzePageWrapper() {
 function AnalyzePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { profiles, activeProfileId, setActiveProfileId } = useProfiles();
+  const { profiles, activeProfileId, adminProfileId, setActiveProfileId } = useProfiles();
+  const [weeklyReport, setWeeklyReport] = useState<WeeklyReportData | null>(null);
   const [mealType, setMealType] = useState<string | null>(null);
   const [mode, setMode] = useState<"photo" | "text" | null>(null);
   const [image, setImage] = useState<string | null>(null);
@@ -140,6 +152,45 @@ function AnalyzePage() {
     }
   };
 
+  const fetchAndShowWeeklyReport = async (calorieGoal: number) => {
+    const sunday = parseISO(mealDate);
+    const monday = subDays(sunday, 6);
+    const weekStart = format(monday, "yyyy-MM-dd");
+
+    const res = await fetch(
+      `/api/meals?profile_id=${activeProfileId}&from=${weekStart}&to=${mealDate}`
+    );
+    const meals: Meal[] = await res.json();
+    if (!Array.isArray(meals)) return;
+
+    const byDate: Record<string, { calories: number; protein: number }> = {};
+    for (let i = 0; i <= 6; i++) {
+      const d = format(addDays(monday, i), "yyyy-MM-dd");
+      byDate[d] = { calories: 0, protein: 0 };
+    }
+    meals.forEach((m) => {
+      if (byDate[m.date]) {
+        byDate[m.date].calories += m.total_calories;
+        byDate[m.date].protein += m.total_protein;
+      }
+    });
+
+    const days = Object.values(byDate).filter((d) => d.calories > 0);
+    const avgCalories = days.length > 0 ? Math.round(days.reduce((s, d) => s + d.calories, 0) / days.length) : 0;
+    const avgProtein = days.length > 0 ? Math.round(days.reduce((s, d) => s + d.protein, 0) / days.length) : 0;
+    const daysOnTarget = days.filter((d) => d.calories <= calorieGoal).length;
+
+    setWeeklyReport({
+      weekStart,
+      weekEnd: mealDate,
+      avgCalories,
+      calorieGoal,
+      daysOnTarget,
+      avgProtein,
+      totalMeals: meals.length,
+    });
+  };
+
   const saveMeal = async () => {
     if (!result || !activeProfileId || !mealType) return;
     setSaving(true);
@@ -158,8 +209,21 @@ function AnalyzePage() {
           food_items: result.foods,
         }),
       });
-      if (res.ok) router.push(`/?date=${mealDate}`);
-      else setError("Erreur lors de la sauvegarde");
+      if (res.ok) {
+        // Show weekly report after Sunday dinner
+        if (getDay(parseISO(mealDate)) === 0 && mealType === "dinner") {
+          const profileRes = await fetch(`/api/profiles?viewer_id=${activeProfileId}`);
+          const profileData = await profileRes.json();
+          const profile = Array.isArray(profileData)
+            ? profileData.find((p) => p.id === activeProfileId)
+            : null;
+          await fetchAndShowWeeklyReport(profile?.daily_calories_goal ?? 2000);
+        } else {
+          router.push(`/?date=${mealDate}`);
+        }
+      } else {
+        setError("Erreur lors de la sauvegarde");
+      }
     } catch {
       setError("Erreur lors de la sauvegarde");
     } finally {
@@ -253,7 +317,9 @@ function AnalyzePage() {
         <ProfileSelector
           profiles={profiles}
           activeProfileId={activeProfileId}
+          adminProfileId={adminProfileId}
           onSelect={setActiveProfileId}
+          onReturnToAdmin={adminProfileId ? () => setActiveProfileId(adminProfileId) : undefined}
         />
       </div>
 
@@ -536,6 +602,64 @@ function AnalyzePage() {
             <RotateCcw className="w-3.5 h-3.5" />
             Reessayer
           </button>
+        </div>
+      )}
+
+      {/* Weekly report modal */}
+      {weeklyReport && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="glass max-w-sm w-full p-6 rounded-3xl shadow-2xl animate-scale-in">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 gradient-purple rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/20">
+                <FileText className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="font-bold text-gray-900">Bilan de la semaine</h2>
+                <p className="text-xs text-gray-400 capitalize">
+                  {format(parseISO(weeklyReport.weekStart), "d MMM", { locale: fr })} — {format(parseISO(weeklyReport.weekEnd), "d MMM yyyy", { locale: fr })}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-0 mb-5 rounded-2xl overflow-hidden border border-gray-100">
+              <div className="flex justify-between items-center px-4 py-3 bg-white/60">
+                <span className="text-sm text-gray-600">Calories moyennes</span>
+                <span className={`text-sm font-bold ${weeklyReport.avgCalories <= weeklyReport.calorieGoal ? "text-emerald-600" : "text-orange-500"}`}>
+                  {weeklyReport.avgCalories} kcal/j
+                </span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3 bg-white/40">
+                <span className="text-sm text-gray-600">Objectif respecté</span>
+                <span className="text-sm font-bold text-gray-700">
+                  {weeklyReport.daysOnTarget}/7 jours
+                </span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3 bg-white/60">
+                <span className="text-sm text-gray-600">Protéines moyennes</span>
+                <span className="text-sm font-bold text-blue-500">{weeklyReport.avgProtein}g/j</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3 bg-white/40">
+                <span className="text-sm text-gray-600">Repas enregistrés</span>
+                <span className="text-sm font-bold text-gray-700">{weeklyReport.totalMeals}</span>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-500 mb-5 text-center">
+              {weeklyReport.avgCalories <= weeklyReport.calorieGoal
+                ? "Bonne semaine ! Déficit respecté en moyenne."
+                : "Semaine un peu chargée. On repart la semaine prochaine !"}
+            </p>
+
+            <button
+              onClick={() => {
+                setWeeklyReport(null);
+                router.push(`/?date=${mealDate}`);
+              }}
+              className="btn-primary w-full"
+            >
+              Voir le tableau de bord
+            </button>
+          </div>
         </div>
       )}
 

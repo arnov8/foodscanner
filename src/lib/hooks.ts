@@ -4,12 +4,12 @@ import { useState, useEffect, useCallback } from "react";
 import type { Profile } from "./types";
 
 const PROFILE_KEY = "food-analyzer-profile-id";
+const ADMIN_PROFILE_KEY = "food-analyzer-admin-profile-id";
 
 export function useProfiles() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [activeProfileId, setActiveProfileIdState] = useState<string | null>(
-    null
-  );
+  const [activeProfileId, setActiveProfileIdState] = useState<string | null>(null);
+  const [adminProfileId, setAdminProfileIdState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchProfiles = useCallback(async (viewerId?: string) => {
@@ -23,11 +23,22 @@ export function useProfiles() {
 
   useEffect(() => {
     const saved = localStorage.getItem(PROFILE_KEY);
+    const savedAdmin = localStorage.getItem(ADMIN_PROFILE_KEY);
+    if (savedAdmin) setAdminProfileIdState(savedAdmin);
     if (saved) setActiveProfileIdState(saved);
     fetchProfiles(saved || undefined).then((data) => {
       if (!saved && data.length > 0) {
         setActiveProfileIdState(data[0].id);
         localStorage.setItem(PROFILE_KEY, data[0].id);
+      }
+      // Auto-detect and persist admin profile ID on first load
+      if (!savedAdmin) {
+        const initialId = saved || data[0]?.id;
+        const activeP = data.find((p: Profile) => p.id === initialId);
+        if (activeP?.is_admin) {
+          setAdminProfileIdState(activeP.id);
+          localStorage.setItem(ADMIN_PROFILE_KEY, activeP.id);
+        }
       }
     });
   }, [fetchProfiles]);
@@ -35,7 +46,12 @@ export function useProfiles() {
   const setActiveProfileId = (id: string) => {
     setActiveProfileIdState(id);
     localStorage.setItem(PROFILE_KEY, id);
-    // Re-fetch profiles with the new viewer to update visibility
+    // If switching to an admin profile, record it as the admin anchor
+    const selectedProfile = profiles.find((p) => p.id === id);
+    if (selectedProfile?.is_admin) {
+      setAdminProfileIdState(id);
+      localStorage.setItem(ADMIN_PROFILE_KEY, id);
+    }
     fetchProfiles(id);
   };
 
@@ -45,6 +61,7 @@ export function useProfiles() {
     profiles,
     activeProfile,
     activeProfileId,
+    adminProfileId,
     setActiveProfileId,
     loading,
     refetch: () => fetchProfiles(activeProfileId || undefined),

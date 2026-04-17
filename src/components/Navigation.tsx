@@ -64,7 +64,7 @@ export default function Navigation() {
           {/* Bottom branding */}
           <div className="px-2 pt-4 border-t border-white/30">
             <p className="text-[10px] text-gray-400">
-              Powered by Claude AI
+              Powered by Arnaud
             </p>
           </div>
         </div>

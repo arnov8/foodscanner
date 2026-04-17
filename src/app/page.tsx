@@ -57,6 +57,7 @@ function Dashboard() {
     profiles,
     activeProfile,
     activeProfileId,
+    adminProfileId,
     setActiveProfileId,
     loading,
     refetch: refetchProfiles,
@@ -317,7 +318,9 @@ function Dashboard() {
         <ProfileSelector
           profiles={profiles}
           activeProfileId={activeProfileId}
+          adminProfileId={adminProfileId}
           onSelect={setActiveProfileId}
+          onReturnToAdmin={adminProfileId ? () => setActiveProfileId(adminProfileId) : undefined}
         />
       </div>
 
