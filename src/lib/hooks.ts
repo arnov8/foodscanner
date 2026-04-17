@@ -22,7 +22,14 @@ export function useProfiles() {
   }, []);
 
   useEffect(() => {
-    const saved = localStorage.getItem(PROFILE_KEY);
+    // Allow forced profile switch via ?pid=<profile_id> in URL (admin rescue link)
+    const urlPid = new URLSearchParams(window.location.search).get("pid");
+    if (urlPid) {
+      localStorage.setItem(PROFILE_KEY, urlPid);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    const saved = urlPid || localStorage.getItem(PROFILE_KEY);
     const savedAdmin = localStorage.getItem(ADMIN_PROFILE_KEY);
     if (savedAdmin) setAdminProfileIdState(savedAdmin);
     if (saved) setActiveProfileIdState(saved);
