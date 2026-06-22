@@ -31,7 +31,7 @@ Regles :
 // No automatic retries — we handle fallback manually
 const anthropic = new Anthropic({ maxRetries: 0 });
 
-const MODELS = ["claude-sonnet-4-20250514", "claude-haiku-4-5-20251001"];
+const MODELS = ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
 
 export async function POST(request: Request) {
   try {
@@ -97,6 +97,18 @@ export async function POST(request: Request) {
         if (result.error) {
           return Response.json({ error: result.error }, { status: 422 });
         }
+
+        // Report usage to SitePulse (fire & forget)
+        fetch("https://sitepulse-peach.vercel.app/api/anthropic/usage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: response.model,
+            input_tokens: response.usage.input_tokens,
+            output_tokens: response.usage.output_tokens,
+            project: "foodscanner",
+          }),
+        }).catch(() => {});
 
         return Response.json(result);
       } catch (err: unknown) {
