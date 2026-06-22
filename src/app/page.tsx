@@ -31,6 +31,8 @@ import {
   Scale,
   AlertTriangle,
   BarChart3,
+  Lightbulb,
+  Loader2,
 } from "lucide-react";
 import { format, addDays, subDays, isToday, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -77,6 +79,12 @@ function Dashboard() {
 
   // Rolling average state
   const [weeklyCalories, setWeeklyCalories] = useState<{ date: string; calories: number }[]>([]);
+
+  // Meal-idea suggestions (on-demand, one Claude call per explicit click)
+  type Suggestion = { name: string; description: string; calories: number };
+  const [suggestions, setSuggestions] = useState<Record<string, Suggestion[]>>({});
+  const [suggestLoading, setSuggestLoading] = useState<string | null>(null);
+  const [suggestOpen, setSuggestOpen] = useState<string | null>(null);
 
   const setDate = (newDate: string) => {
     setDateState(newDate);
@@ -267,6 +275,39 @@ function Dashboard() {
 
   // Mini bar chart max
   const maxWeeklyCal = Math.max(...weeklyCalories.map(d => d.calories), goal);
+
+  // Fetch meal ideas for a given meal type — only on explicit user click
+  const fetchSuggestions = async (mealType: string) => {
+    setSuggestLoading(mealType);
+    try {
+      const res = await fetch("/api/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          meal_type: mealType,
+          goal,
+          consumed_calories: totals.calories,
+          logged_types: meals.map((m) => m.meal_type),
+          weekly_avg: rollingAvg,
+        }),
+      });
+      const data = await res.json();
+      setSuggestions((prev) => ({ ...prev, [mealType]: data.suggestions || [] }));
+    } catch {
+      setSuggestions((prev) => ({ ...prev, [mealType]: [] }));
+    } finally {
+      setSuggestLoading(null);
+    }
+  };
+
+  const toggleSuggestions = (mealType: string) => {
+    if (suggestOpen === mealType) {
+      setSuggestOpen(null);
+      return;
+    }
+    setSuggestOpen(mealType);
+    if (!suggestions[mealType]) fetchSuggestions(mealType);
+  };
 
   if (loading) {
     return (
@@ -797,6 +838,66 @@ function Dashboard() {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+
+                {/* Meal ideas — on-demand, no automatic Claude call */}
+                {type !== "snack" && (
+                  <div className="mt-2">
+                    <button
+                      onClick={() => toggleSuggestions(type)}
+                      className="w-full flex items-center justify-center gap-2 py-2 text-xs font-semibold text-gray-400 hover:text-amber-500 transition-all"
+                    >
+                      <Lightbulb className="w-3.5 h-3.5" />
+                      {suggestOpen === type ? "Masquer les idees" : "Idees de plats"}
+                    </button>
+                    {suggestOpen === type && (
+                      <div className="mt-1 space-y-2 animate-fade-in">
+                        {suggestLoading === type ? (
+                          <div className="card p-4 flex items-center justify-center gap-2 text-gray-400">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span className="text-xs font-medium">Recherche d&apos;idees...</span>
+                          </div>
+                        ) : suggestions[type] && suggestions[type].length > 0 ? (
+                          <>
+                            {suggestions[type].map((s, si) => (
+                              <Link
+                                key={si}
+                                href={`/analyze?date=${date}&meal=${type}&prefill=${encodeURIComponent(`${s.name}, ${s.description}`)}`}
+                                className="card card-hover p-3 flex items-center gap-3"
+                              >
+                                <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center flex-shrink-0">
+                                  <Lightbulb className="w-4 h-4 text-amber-400" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-semibold text-gray-700 truncate">{s.name}</p>
+                                  <p className="text-[11px] text-gray-400 truncate">{s.description}</p>
+                                </div>
+                                <span className="pill pill-amber text-[10px] flex-shrink-0">
+                                  ~{Math.round(s.calories)} kcal
+                                </span>
+                              </Link>
+                            ))}
+                            <button
+                              onClick={() => fetchSuggestions(type)}
+                              className="w-full text-[11px] font-medium text-gray-400 hover:text-amber-500 py-1.5 transition-all"
+                            >
+                              Proposer d&apos;autres idees
+                            </button>
+                          </>
+                        ) : (
+                          <div className="card p-4 text-center text-xs text-gray-400">
+                            Aucune idee pour le moment.{" "}
+                            <button
+                              onClick={() => fetchSuggestions(type)}
+                              className="text-amber-500 font-semibold"
+                            >
+                              Reessayer
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

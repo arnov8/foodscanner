@@ -59,12 +59,22 @@ function AnalyzePage() {
   const searchParams = useSearchParams();
   const { profiles, activeProfileId, adminProfileId, setActiveProfileId } = useProfiles();
   const [weeklyReport, setWeeklyReport] = useState<WeeklyReportData | null>(null);
-  const [mealType, setMealType] = useState<string | null>(null);
-  const [mode, setMode] = useState<"photo" | "text" | null>(null);
+
+  // Optional deep-link from a meal idea on the dashboard: ?meal=lunch&prefill=...
+  const presetMeal = searchParams.get("meal");
+  const presetPrefill = searchParams.get("prefill");
+  const validMeals = ["breakfast", "lunch", "dinner", "snack"];
+
+  const [mealType, setMealType] = useState<string | null>(
+    presetMeal && validMeals.includes(presetMeal) ? presetMeal : null
+  );
+  const [mode, setMode] = useState<"photo" | "text" | null>(
+    presetPrefill ? "text" : null
+  );
   const [image, setImage] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [mimeType, setMimeType] = useState("image/jpeg");
-  const [textInput, setTextInput] = useState("");
+  const [textInput, setTextInput] = useState(presetPrefill || "");
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [saving, setSaving] = useState(false);
