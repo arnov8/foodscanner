@@ -28,6 +28,12 @@ npm run dev -- -p 3007
 - **Lien de secours iPhone** (si localStorage effacé) :
   `https://foodscanner-three.vercel.app/?pid=8e54eab4-adc6-4174-bdbc-4104b1309025`
 
+## Modèles Anthropic (IMPORTANT)
+- Les IDs de modèles sont définis dans `src/app/api/analyze/route.ts` (const `MODELS`).
+- Modèles actuels : `claude-sonnet-4-6` (principal) → fallback `claude-haiku-4-5-20251001` si 529.
+- ⚠️ **Ne JAMAIS utiliser un ID daté retiré.** `claude-sonnet-4-20250514` a été retiré le 15/06/2026 → `404 not_found_error` sur `/api/analyze` ("failed to analyse"). Préférer les alias non datés (`claude-sonnet-4-6`).
+- Si l'analyse renvoie une erreur 404 modèle : vérifier que les IDs dans `MODELS` sont toujours actifs (les modèles datés finissent par être retirés).
+
 ## Fonctionnalités clés
 - Analyse repas via photo ou texte (Claude Sonnet → fallback Haiku si 529)
 - Rapport hebdo automatique après le dîner du dimanche
