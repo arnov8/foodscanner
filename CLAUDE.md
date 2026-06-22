@@ -29,7 +29,7 @@ npm run dev -- -p 3007
   `https://foodscanner-three.vercel.app/?pid=8e54eab4-adc6-4174-bdbc-4104b1309025`
 
 ## Modèles Anthropic (IMPORTANT)
-- Les IDs de modèles sont définis dans `src/app/api/analyze/route.ts` (const `MODELS`).
+- Les IDs de modèles sont définis dans `src/app/api/analyze/route.ts` **et** `src/app/api/suggest/route.ts` (const `MODELS` dans chaque fichier — penser à les garder synchro).
 - Modèles actuels : `claude-sonnet-4-6` (principal) → fallback `claude-haiku-4-5-20251001` si 529.
 - ⚠️ **Ne JAMAIS utiliser un ID daté retiré.** `claude-sonnet-4-20250514` a été retiré le 15/06/2026 → `404 not_found_error` sur `/api/analyze` ("failed to analyse"). Préférer les alias non datés (`claude-sonnet-4-6`).
 - Si l'analyse renvoie une erreur 404 modèle : vérifier que les IDs dans `MODELS` sont toujours actifs (les modèles datés finissent par être retirés).
@@ -39,10 +39,12 @@ npm run dev -- -p 3007
 - Rapport hebdo automatique après le dîner du dimanche
 - Mode admin : bouton "← Mon profil" quand Arnaud navigue sur un autre compte
 - Suivi du poids + recalcul TDEE automatique
+- **Idées de plats** : bouton « 💡 Idées de plats » sous chaque section repas (petit-déj/déj/dîner) du dashboard. Appelle `/api/suggest` **uniquement au clic** (pas d'appel automatique — économie de tokens). Propose 3-4 plats simples calibrés sur le budget calorique restant du repas (objectif − déjà mangé, réparti sur les repas non encore loggés : petit-déj 25 % / déj 40 % / dîner 35 %), ajusté par la moyenne glissante 7j pour viser un déficit hebdo. Un tap sur une idée ouvre `/analyze?meal=...&prefill=...` (repas pré-sélectionné + description pré-remplie en mode texte) ; les vraies valeurs sont recalculées à l'enregistrement.
 
 ## Fichiers importants
 - `src/lib/hooks.ts` — gestion profils + localStorage + adminProfileId
 - `src/components/ProfileSelector.tsx` — sélecteur avec badge admin
-- `src/app/analyze/page.tsx` — saisie repas + rapport dominical
-- `src/app/page.tsx` — dashboard principal
+- `src/app/analyze/page.tsx` — saisie repas + rapport dominical (lit les params `meal`/`prefill` pour les idées de plats)
+- `src/app/page.tsx` — dashboard principal (boutons « Idées de plats »)
+- `src/app/api/suggest/route.ts` — suggestions de plats (on-demand, budget calorique + ajustement hebdo)
 - `src/app/api/profiles/route.ts` — CRUD profils avec contrôle admin
