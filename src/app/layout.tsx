@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Navigation from "@/components/Navigation";
@@ -17,6 +17,16 @@ export const metadata: Metadata = {
   title: "Food Scanner - Suivi Nutritionnel IA",
   description:
     "Scannez vos repas par photo avec l'IA et suivez votre deficit calorique",
+  // Installation écran d'accueil iOS en plein écran (complète manifest.ts)
+  appleWebApp: {
+    capable: true,
+    title: "FoodScanner",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#10b981",
 };
 
 export default function RootLayout({
