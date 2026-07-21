@@ -27,6 +27,25 @@ npm run dev -- -p 3007
 - L'admin voit tous les profils ; les autres ne voient que le leur
 - **Lien de secours iPhone** (si localStorage effacé) :
   `https://foodscanner-three.vercel.app/?pid=8e54eab4-adc6-4174-bdbc-4104b1309025`
+- **Routes IA protégées** (depuis 21/07/2026) : `/api/analyze` et `/api/suggest` exigent un
+  `profile_id` existant en base dans le body (sinon 401) — garde anti-bots, voir `src/lib/auth.ts`.
+  Tout nouvel appel client vers ces routes doit inclure `profile_id: activeProfileId`.
+
+## Variables d'environnement (depuis 21/07/2026)
+- `SUPABASE_URL` / `SUPABASE_ANON_KEY` — **server-only, sans préfixe `NEXT_PUBLIC_`**
+  (pas de RLS → la clé ne doit jamais partir dans le bundle client).
+- `src/lib/supabase.ts` a un repli temporaire sur les anciens noms `NEXT_PUBLIC_SUPABASE_*`
+  (toujours présents dans Vercel). Ne PAS recréer de variable `NEXT_PUBLIC_SUPABASE_*`.
+- `ANTHROPIC_API_KEY` — inchangée.
+
+## Mobile / PWA (depuis 21/07/2026)
+- Installable sur l'écran d'accueil iPhone (standalone) : `src/app/manifest.ts` +
+  icônes générées `src/app/icon.tsx` / `src/app/apple-icon.tsx` (ImageResponse, anneau
+  émeraude façon CalorieRing — pas d'asset binaire).
+- Les photos sont **redimensionnées côté client** avant upload (max 1024 px, JPEG 0.8)
+  dans `analyze/page.tsx` (`handleFile`) — limite Vercel 4,5 Mo + économie de tokens.
+  Ne pas renvoyer l'image originale pleine résolution.
+- Scroll vertical uniquement : `overflow-x: hidden` sur html/body dans `globals.css`.
 
 ## Modèles Anthropic (IMPORTANT)
 - Les IDs de modèles sont définis dans `src/app/api/analyze/route.ts` **et** `src/app/api/suggest/route.ts` (const `MODELS` dans chaque fichier — penser à les garder synchro).
