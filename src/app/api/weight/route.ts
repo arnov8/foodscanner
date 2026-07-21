@@ -1,4 +1,13 @@
 import { supabase } from "@/lib/supabase";
+import { format, parseISO, subDays } from "date-fns";
+import {
+  summarizeDays,
+  averageTrackedCalories,
+  weightTrend,
+  adaptiveTdee,
+  type MealLike,
+  type WeightPoint,
+} from "@/lib/deficit";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -66,7 +75,45 @@ export async function POST(request: Request) {
     } else {
       bmr = 10 * weight + 6.25 * height - 5 * age - 161;
     }
-    const tdee = Math.round(bmr * activity_level);
+    const formulaTdee = Math.round(bmr * activity_level);
+
+    // TDEE réel déduit de la balance : apport moyen loggé (jours suivis,
+    // fenêtre 21 j) + énergie tirée des réserves (pente de poids sur 28 j).
+    // Ne pilote l'objectif que si les données suffisent (voir lib/deficit),
+    // sinon repli sur la formule Mifflin-St Jeor.
+    const anchor = parseISO(date);
+    const mealsFrom = format(subDays(anchor, 20), "yyyy-MM-dd");
+    const weightsFrom = format(subDays(anchor, 27), "yyyy-MM-dd");
+    const [{ data: mealRows }, { data: weightRows }] = await Promise.all([
+      supabase
+        .from("meals")
+        .select("date, meal_type, total_calories, total_protein")
+        .eq("profile_id", profile_id)
+        .gte("date", mealsFrom)
+        .lte("date", date),
+      supabase
+        .from("weight_entries")
+        .select("date, weight")
+        .eq("profile_id", profile_id)
+        .gte("date", weightsFrom)
+        .lte("date", date),
+    ]);
+
+    const dates: string[] = [];
+    for (let i = 20; i >= 0; i--) {
+      dates.push(format(subDays(anchor, i), "yyyy-MM-dd"));
+    }
+    // Le jour de la pesée est exclu de la moyenne : journée en cours, incomplète
+    const summaries = summarizeDays((mealRows ?? []) as MealLike[], dates);
+    const { avg: avgIntake, trackedDays } = averageTrackedCalories(summaries, date);
+    const trend = weightTrend((weightRows ?? []) as WeightPoint[]);
+
+    const { tdee } = adaptiveTdee({
+      formulaTdee,
+      avgIntake,
+      trackedDays,
+      slopeKgPerWeek: trend.slopeKgPerWeek,
+    });
     const targetCalories = Math.max(1200, tdee - deficit_target);
     const proteinCals = targetCalories * 0.3;
     const carbsCals = targetCalories * 0.4;
