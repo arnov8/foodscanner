@@ -2,6 +2,7 @@
 
 import { useState, useRef, Suspense } from "react";
 import { useProfiles } from "@/lib/hooks";
+import { summarizeDays } from "@/lib/deficit";
 import type { AnalysisResult, Meal } from "@/lib/types";
 import ProfileSelector from "@/components/ProfileSelector";
 import {
@@ -35,6 +36,7 @@ interface WeeklyReportData {
   avgCalories: number;
   calorieGoal: number;
   daysOnTarget: number;
+  trackedDays: number;
   avgProtein: number;
   totalMeals: number;
 }
@@ -209,19 +211,13 @@ function AnalyzePage() {
     const meals: Meal[] = await res.json();
     if (!Array.isArray(meals)) return;
 
-    const byDate: Record<string, { calories: number; protein: number }> = {};
+    // Seuls les jours réellement suivis entrent dans les moyennes du rapport
+    // (un jour vide ou avec juste un snack n'est pas compté comme 0 kcal)
+    const dates: string[] = [];
     for (let i = 0; i <= 6; i++) {
-      const d = format(addDays(monday, i), "yyyy-MM-dd");
-      byDate[d] = { calories: 0, protein: 0 };
+      dates.push(format(addDays(monday, i), "yyyy-MM-dd"));
     }
-    meals.forEach((m) => {
-      if (byDate[m.date]) {
-        byDate[m.date].calories += m.total_calories;
-        byDate[m.date].protein += m.total_protein;
-      }
-    });
-
-    const days = Object.values(byDate).filter((d) => d.calories > 0);
+    const days = summarizeDays(meals, dates).filter((d) => d.tracked);
     const avgCalories = days.length > 0 ? Math.round(days.reduce((s, d) => s + d.calories, 0) / days.length) : 0;
     const avgProtein = days.length > 0 ? Math.round(days.reduce((s, d) => s + d.protein, 0) / days.length) : 0;
     const daysOnTarget = days.filter((d) => d.calories <= calorieGoal).length;
@@ -232,6 +228,7 @@ function AnalyzePage() {
       avgCalories,
       calorieGoal,
       daysOnTarget,
+      trackedDays: days.length,
       avgProtein,
       totalMeals: meals.length,
     });
@@ -677,7 +674,9 @@ function AnalyzePage() {
               <div className="flex justify-between items-center px-4 py-3 bg-white/40">
                 <span className="text-sm text-gray-600">Objectif respecté</span>
                 <span className="text-sm font-bold text-gray-700">
-                  {weeklyReport.daysOnTarget}/7 jours
+                  {weeklyReport.daysOnTarget}/{weeklyReport.trackedDays} jour
+                  {weeklyReport.trackedDays > 1 ? "s" : ""} suivi
+                  {weeklyReport.trackedDays > 1 ? "s" : ""}
                 </span>
               </div>
               <div className="flex justify-between items-center px-4 py-3 bg-white/60">
