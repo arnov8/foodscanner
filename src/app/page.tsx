@@ -34,8 +34,18 @@ import {
   Lightbulb,
   Loader2,
 } from "lucide-react";
-import { format, addDays, subDays, isToday, parseISO } from "date-fns";
+import { format, addDays, subDays, isToday, parseISO, startOfWeek } from "date-fns";
 import { fr } from "date-fns/locale";
+import {
+  summarizeDays,
+  averageTrackedCalories,
+  weightTrend,
+  realTdee,
+  ADAPTIVE_MIN_TRACKED_DAYS,
+  KCAL_PER_KG,
+  type DaySummary,
+  type WeightPoint,
+} from "@/lib/deficit";
 
 const MEAL_SECTIONS = [
   { type: "breakfast", label: "Petit-dejeuner", icon: Coffee, pill: "pill-amber" },
@@ -77,8 +87,10 @@ function Dashboard() {
   const [editingWeight, setEditingWeight] = useState(false);
   const [savingWeight, setSavingWeight] = useState(false);
 
-  // Rolling average state
-  const [weeklyCalories, setWeeklyCalories] = useState<{ date: string; calories: number }[]>([]);
+  // Résumés des 21 derniers jours : 7 pour le mini-graph, 21 pour le TDEE réel
+  const [daySummaries, setDaySummaries] = useState<DaySummary[]>([]);
+  // Pesées des 28 derniers jours pour la tendance lissée
+  const [weightHistory, setWeightHistory] = useState<WeightPoint[]>([]);
 
   // Meal-idea suggestions (on-demand, one Claude call per explicit click)
   type Suggestion = { name: string; description: string; calories: number };
@@ -122,30 +134,35 @@ function Dashboard() {
     }
   }, [activeProfileId, date]);
 
-  // Fetch last 7 days for rolling average
+  // Fetch last 21 days of meals (chart + moyennes + TDEE réel)
   const fetchWeeklyData = useCallback(async () => {
     if (!activeProfileId) return;
-    const to = date;
-    const from = format(subDays(parseISO(date), 6), "yyyy-MM-dd");
+    const from = format(subDays(parseISO(date), 20), "yyyy-MM-dd");
     const res = await fetch(
-      `/api/meals?profile_id=${activeProfileId}&from=${from}&to=${to}`
+      `/api/meals?profile_id=${activeProfileId}&from=${from}&to=${date}`
     );
     const data = await res.json();
     if (!Array.isArray(data)) return;
 
-    // Group by date
-    const byDate: Record<string, number> = {};
-    for (let i = 6; i >= 0; i--) {
-      const d = format(subDays(parseISO(date), i), "yyyy-MM-dd");
-      byDate[d] = 0;
+    const dates: string[] = [];
+    for (let i = 20; i >= 0; i--) {
+      dates.push(format(subDays(parseISO(date), i), "yyyy-MM-dd"));
     }
-    data.forEach((m: Meal) => {
-      if (byDate[m.date] !== undefined) {
-        byDate[m.date] += m.total_calories;
-      }
-    });
-    setWeeklyCalories(
-      Object.entries(byDate).map(([d, cal]) => ({ date: d, calories: Math.round(cal) }))
+    setDaySummaries(summarizeDays(data, dates));
+  }, [activeProfileId, date]);
+
+  // Fetch last 28 days of weigh-ins (tendance lissée + TDEE réel)
+  const fetchWeightHistory = useCallback(async () => {
+    if (!activeProfileId) return;
+    const from = format(subDays(parseISO(date), 27), "yyyy-MM-dd");
+    const res = await fetch(
+      `/api/weight?profile_id=${activeProfileId}&from=${from}&to=${date}`
+    );
+    const data = await res.json();
+    setWeightHistory(
+      Array.isArray(data)
+        ? data.map((e: WeightEntry) => ({ date: e.date, weight: e.weight }))
+        : []
     );
   }, [activeProfileId, date]);
 
@@ -153,7 +170,8 @@ function Dashboard() {
     fetchMeals();
     fetchWeight();
     fetchWeeklyData();
-  }, [fetchMeals, fetchWeight, fetchWeeklyData]);
+    fetchWeightHistory();
+  }, [fetchMeals, fetchWeight, fetchWeeklyData, fetchWeightHistory]);
 
   const saveWeight = async () => {
     if (!activeProfileId || !weightInput.trim()) return;
@@ -170,6 +188,7 @@ function Dashboard() {
     setSavingWeight(false);
     // Refetch profile since goals may have been recalculated
     await refetchProfiles();
+    fetchWeightHistory();
   };
 
   const deleteMeal = async (id: string) => {
@@ -267,14 +286,48 @@ function Dashboard() {
   );
   const isIncomplete = isTodaySelected && totals.calories > 0 && loggedMainMeals.length < 2;
 
-  // 7-day rolling average
-  const rollingAvg = weeklyCalories.length > 0
-    ? Math.round(weeklyCalories.reduce((s, d) => s + d.calories, 0) / weeklyCalories.filter(d => d.calories > 0).length || 0)
-    : 0;
-  const daysWithData = weeklyCalories.filter(d => d.calories > 0).length;
+  // Le jour en cours est incomplet par définition : exclu de toutes les moyennes
+  const realToday = format(new Date(), "yyyy-MM-dd");
+
+  // 7 derniers jours pour le mini-graph ; moyenne sur les jours suivis uniquement
+  const chartDays = daySummaries.slice(-7);
+  const { avg: rollingAvg, trackedDays: daysWithData } = averageTrackedCalories(
+    chartDays,
+    realToday
+  );
 
   // Mini bar chart max
-  const maxWeeklyCal = Math.max(...weeklyCalories.map(d => d.calories), goal);
+  const maxWeeklyCal = Math.max(...chartDays.map((d) => d.calories), goal);
+
+  // ==== TDEE réel (fenêtre 21 j de repas + 28 j de pesées) ====
+  const { avg: avgIntake21, trackedDays: trackedDays21 } =
+    averageTrackedCalories(daySummaries, realToday);
+  const trend = weightTrend(weightHistory);
+  const hasRealTdee =
+    trend.slopeKgPerWeek !== null &&
+    trackedDays21 >= ADAPTIVE_MIN_TRACKED_DAYS &&
+    avgIntake21 > 0;
+  const tdeeReal = hasRealTdee ? realTdee(avgIntake21, trend.slopeKgPerWeek!) : null;
+  const realDailyDeficit = tdeeReal !== null ? tdeeReal - avgIntake21 : null;
+  // Rythme de perte attendu si le déficit visé est tenu (kg/semaine)
+  const expectedSlope = activeProfile?.deficit_target
+    ? -Math.round(((activeProfile.deficit_target * 7) / KCAL_PER_KG) * 100) / 100
+    : null;
+
+  // ==== Budget semaine calendaire (lun → dim), jours suivis uniquement ====
+  const weekStartDate = startOfWeek(parseISO(date), { weekStartsOn: 1 });
+  const weekDates = new Set(
+    Array.from({ length: 7 }, (_, i) => format(addDays(weekStartDate, i), "yyyy-MM-dd"))
+  );
+  const weekTracked = daySummaries.filter(
+    (d) => weekDates.has(d.date) && d.tracked && d.date !== realToday
+  );
+  const weekDelta = weekTracked.reduce((s, d) => s + (d.calories - goal), 0);
+  // Jours restants dans la semaine, jour sélectionné inclus (0 = lundi)
+  const weekDayIndex = Math.round(
+    (parseISO(date).getTime() - weekStartDate.getTime()) / 86_400_000
+  );
+  const remainingWeekDays = Math.max(1, 7 - weekDayIndex);
 
   // Fetch meal ideas for a given meal type — only on explicit user click
   const fetchSuggestions = async (mealType: string) => {
@@ -584,23 +637,24 @@ function Dashboard() {
         ))}
       </div>
 
-      {/* 7-day rolling average + mini chart */}
-      {weeklyCalories.length > 0 && (
+      {/* 7-day rolling average + mini chart — jours suivis uniquement */}
+      {chartDays.length > 0 && (
         <div className="glass p-5 mb-6 animate-fade-in">
           <div className="flex items-center gap-2 mb-4">
             <BarChart3 className="w-4 h-4 text-gray-400" />
             <h3 className="text-sm font-bold text-gray-700">7 derniers jours</h3>
             {daysWithData > 0 && (
               <span className={`pill text-[10px] ml-auto ${rollingAvg <= goal ? "pill-green" : "pill-red"}`}>
-                Moy: {rollingAvg} kcal
+                Moy: {rollingAvg} kcal · {daysWithData} j suivi{daysWithData > 1 ? "s" : ""}
               </span>
             )}
           </div>
           <div className="flex items-end gap-1.5 h-20">
-            {weeklyCalories.map((d) => {
+            {chartDays.map((d) => {
               const pct = maxWeeklyCal > 0 ? (d.calories / maxWeeklyCal) * 100 : 0;
               const isOver = d.calories > goal;
               const isSelected = d.date === date;
+              // Jour non suivi (vide ou juste un snack) : gris, hors moyennes
               return (
                 <button
                   key={d.date}
@@ -610,8 +664,10 @@ function Dashboard() {
                   }`}
                   style={{
                     height: `${Math.max(pct, 4)}%`,
-                    background: d.calories === 0
-                      ? "rgba(0,0,0,0.05)"
+                    background: !d.tracked
+                      ? d.calories > 0
+                        ? "rgba(0,0,0,0.12)"
+                        : "rgba(0,0,0,0.05)"
                       : isOver
                         ? "linear-gradient(to top, #ef4444, #f87171)"
                         : "linear-gradient(to top, #10b981, #34d399)",
@@ -619,7 +675,7 @@ function Dashboard() {
                 >
                   <div className="absolute -top-5 left-1/2 -translate-x-1/2 hidden group-hover:block">
                     <span className="text-[9px] font-bold text-gray-500 whitespace-nowrap">
-                      {d.calories > 0 ? d.calories : "—"}
+                      {d.calories > 0 ? `${d.calories}${d.tracked ? "" : " (partiel)"}` : "—"}
                     </span>
                   </div>
                 </button>
@@ -627,7 +683,7 @@ function Dashboard() {
             })}
           </div>
           <div className="flex gap-1.5 mt-1.5">
-            {weeklyCalories.map((d) => (
+            {chartDays.map((d) => (
               <div key={d.date} className="flex-1 text-center">
                 <span className={`text-[9px] font-medium ${d.date === date ? "text-emerald-600" : "text-gray-400"}`}>
                   {format(parseISO(d.date), "EEE", { locale: fr }).charAt(0).toUpperCase()}
@@ -644,6 +700,84 @@ function Dashboard() {
               </span>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Budget semaine calendaire — le déficit se joue à la semaine */}
+      {weekTracked.length > 0 && (
+        <div className="glass p-5 mb-6 animate-fade-in">
+          <div className="flex items-center gap-2 mb-2">
+            <CalendarDays className="w-4 h-4 text-gray-400" />
+            <h3 className="text-sm font-bold text-gray-700">Cette semaine</h3>
+            <span className={`pill text-[10px] ml-auto ${weekDelta <= 0 ? "pill-green" : "pill-red"}`}>
+              {weekDelta <= 0 ? "" : "+"}
+              {weekDelta} kcal vs objectif
+            </span>
+          </div>
+          <p className="text-xs text-gray-400">
+            Cumul sur {weekTracked.length} jour{weekTracked.length > 1 ? "s" : ""} suivi
+            {weekTracked.length > 1 ? "s" : ""} depuis lundi
+            {weekDelta > 0
+              ? ` — rattrapable : vise ~${Math.max(1200, goal - Math.round(weekDelta / remainingWeekDays))} kcal/j d'ici dimanche`
+              : " — le déficit se joue à la semaine, pas à la journée"}
+          </p>
+        </div>
+      )}
+
+      {/* Tendance poids lissée + TDEE réel */}
+      {trend.trendWeight !== null && (
+        <div className="glass p-5 mb-6 animate-fade-in">
+          <div className="flex items-center gap-2 mb-3">
+            <Scale className="w-4 h-4 text-gray-400" />
+            <h3 className="text-sm font-bold text-gray-700">Tendance poids</h3>
+            {trend.slopeKgPerWeek !== null && (
+              <span className={`pill text-[10px] ml-auto ${trend.slopeKgPerWeek <= 0 ? "pill-green" : "pill-red"}`}>
+                {trend.slopeKgPerWeek > 0 ? "+" : ""}
+                {trend.slopeKgPerWeek} kg/sem
+              </span>
+            )}
+          </div>
+          <div className="flex items-baseline gap-2">
+            <p className="text-2xl font-bold text-gray-800">{trend.trendWeight} kg</p>
+            <p className="text-[10px] text-gray-400">
+              moyenne des pesées sur 7 j — le poids brut fluctue de ±1-2 kg d&apos;eau
+            </p>
+          </div>
+          {trend.slopeKgPerWeek === null ? (
+            <p className="text-xs text-gray-400 mt-2">
+              Pèse-toi plus régulièrement ({trend.points} pesée{trend.points > 1 ? "s" : ""} sur{" "}
+              {trend.spanDays} j) : il en faut au moins 4 étalées sur 10 jours pour une
+              tendance fiable.
+            </p>
+          ) : (
+            <>
+              {expectedSlope !== null && (
+                <p className="text-xs text-gray-400 mt-2">
+                  Rythme visé : {expectedSlope} kg/sem (déficit de{" "}
+                  {activeProfile?.deficit_target} kcal/j)
+                </p>
+              )}
+              {tdeeReal !== null && realDailyDeficit !== null ? (
+                <div className="mt-3 pt-3 border-t border-gray-200/60">
+                  <p className="text-xs font-semibold text-gray-600">
+                    TDEE réel ≈ {tdeeReal} kcal/j · déficit réel ≈{" "}
+                    {realDailyDeficit > 0 ? "−" : "+"}
+                    {Math.abs(realDailyDeficit)} kcal/j
+                  </p>
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Déduit de la balance sur ~3 semaines ({trackedDays21} j suivis) — c&apos;est
+                    lui qui pilote ton objectif, pas la formule théorique.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-[10px] text-gray-400 mt-2">
+                  TDEE réel disponible après {ADAPTIVE_MIN_TRACKED_DAYS} jours suivis sur 3
+                  semaines ({trackedDays21} pour l&apos;instant) — d&apos;ici là l&apos;objectif suit la
+                  formule théorique.
+                </p>
+              )}
+            </>
+          )}
         </div>
       )}
 
