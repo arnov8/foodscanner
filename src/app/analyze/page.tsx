@@ -39,6 +39,12 @@ interface WeeklyReportData {
   totalMeals: number;
 }
 
+// Downscale photos client-side before upload : les fonctions Vercel refusent les
+// bodies > 4,5 Mo (photos iPhone = 3-8 Mo) et Claude analyse aussi bien à 1024 px.
+// Réduit aussi les tokens d'entrée et le temps d'upload en 4G.
+const MAX_IMAGE_DIMENSION = 1024;
+const JPEG_QUALITY = 0.8;
+
 const MEAL_TYPES = [
   { value: "breakfast", label: "Petit-dejeuner", icon: Coffee, color: "gradient-orange", shadow: "shadow-orange-500/20" },
   { value: "lunch", label: "Dejeuner", icon: Sun, color: "gradient-blue", shadow: "shadow-blue-500/20" },
@@ -95,18 +101,45 @@ function AnalyzePage() {
   const handleFile = (file: File) => {
     setError(null);
     setResult(null);
-    setMimeType(file.type || "image/jpeg");
     const reader = new FileReader();
     reader.onload = (e) => {
       const dataUrl = e.target?.result as string;
-      setPreview(dataUrl);
-      setImage(dataUrl.split(",")[1]);
+      // Fallback si le navigateur ne sait pas décoder/redessiner l'image
+      const keepOriginal = () => {
+        setMimeType(file.type || "image/jpeg");
+        setPreview(dataUrl);
+        setImage(dataUrl.split(",")[1]);
+      };
+      const img = new window.Image();
+      img.onload = () => {
+        try {
+          const scale = Math.min(
+            1,
+            MAX_IMAGE_DIMENSION / Math.max(img.width, img.height)
+          );
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return keepOriginal();
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const resized = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+          setMimeType("image/jpeg");
+          setPreview(resized);
+          setImage(resized.split(",")[1]);
+        } catch {
+          keepOriginal();
+        }
+      };
+      img.onerror = keepOriginal;
+      img.src = dataUrl;
     };
     reader.readAsDataURL(file);
   };
 
   const analyze = async () => {
     if (!image && !textInput.trim()) return;
+    if (!activeProfileId) return;
     setAnalyzing(true);
     setError(null);
     try {
@@ -115,8 +148,8 @@ function AnalyzePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           image
-            ? { image, mimeType }
-            : { text: textInput.trim() }
+            ? { image, mimeType, profile_id: activeProfileId }
+            : { text: textInput.trim(), profile_id: activeProfileId }
         ),
       });
       const data = await res.json();
@@ -137,7 +170,10 @@ function AnalyzePage() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: extraText.trim() }),
+        body: JSON.stringify({
+          text: extraText.trim(),
+          profile_id: activeProfileId,
+        }),
       });
       const data = await res.json();
       if (data.error) {
