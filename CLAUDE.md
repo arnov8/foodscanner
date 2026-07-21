@@ -38,6 +38,23 @@ npm run dev -- -p 3007
   (toujours présents dans Vercel). Ne PAS recréer de variable `NEXT_PUBLIC_SUPABASE_*`.
 - `ANTHROPIC_API_KEY` — inchangée.
 
+## Règles de calcul du déficit (depuis 21/07/2026) — `src/lib/deficit.ts`
+Toutes les règles de moyennes/tendance/TDEE sont centralisées dans `src/lib/deficit.ts`
+(partagé client + serveur). **Ne jamais recalculer une moyenne à la main ailleurs.**
+- **Jour « suivi »** : ≥ 2 repas principaux loggés OU total ≥ 1000 kcal. Un jour vide ou
+  avec juste un snack n'entre JAMAIS dans une moyenne (règle produit demandée par Arnaud :
+  jamais compter 0 kcal pour un jour non loggé).
+- **Jour en cours** : exclu de toutes les moyennes (journée incomplète par définition),
+  il compte à partir du lendemain.
+- **Tendance poids** : moyenne des pesées sur 7 j + pente kg/sem par régression linéaire
+  (fenêtre 28 j). Pente affichée seulement si ≥ 4 pesées étalées sur ≥ 10 j.
+- **TDEE réel** : apport moyen (jours suivis, 21 j) + 7700 × pente de poids. Pilote le
+  recalcul d'objectif à chaque pesée (`/api/weight` POST) si ≥ 10 jours suivis et pente
+  fiable, borné à ±25 % du TDEE Mifflin ; sinon repli sur la formule.
+- **Budget semaine** : cumul (kcal − objectif) sur les jours suivis lun→dim, carte dashboard.
+- Tests des fonctions : lancés à la main via `npx tsx` (voir historique 21/07), pas de
+  framework de test installé (choix assumé, app perso).
+
 ## Mobile / PWA (depuis 21/07/2026)
 - Installable sur l'écran d'accueil iPhone (standalone) : `src/app/manifest.ts` +
   icônes générées `src/app/icon.tsx` / `src/app/apple-icon.tsx` (ImageResponse, anneau
