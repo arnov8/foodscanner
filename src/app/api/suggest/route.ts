@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { isValidProfile } from "@/lib/auth";
 
 // On-demand only — called when the user taps "Idées de plats" on a meal section.
 // No automatic invocation: one Claude request per explicit click.
@@ -22,6 +23,11 @@ const MODELS = ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+
+    if (!(await isValidProfile(body.profile_id))) {
+      return Response.json({ error: "Profil requis" }, { status: 401 });
+    }
+
     const {
       meal_type,
       goal,

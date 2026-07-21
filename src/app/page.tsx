@@ -289,6 +289,7 @@ function Dashboard() {
           consumed_calories: totals.calories,
           logged_types: meals.map((m) => m.meal_type),
           weekly_avg: rollingAvg,
+          profile_id: activeProfileId,
         }),
       });
       const data = await res.json();

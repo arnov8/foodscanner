@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { isValidProfile } from "@/lib/auth";
 
 const NUTRITION_PROMPT = `Analyse ce repas/aliment. Identifie chaque aliment et estime les valeurs nutritionnelles.
 
@@ -36,7 +37,11 @@ const MODELS = ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { image, mimeType, text } = body;
+    const { image, mimeType, text, profile_id } = body;
+
+    if (!(await isValidProfile(profile_id))) {
+      return Response.json({ error: "Profil requis" }, { status: 401 });
+    }
 
     if (!image && !text) {
       return Response.json(
